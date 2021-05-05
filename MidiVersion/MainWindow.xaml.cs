@@ -1,23 +1,16 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Numerics;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
-using Melanchall.DryWetMidi.Core;
+﻿using Melanchall.DryWetMidi.Core;
 using Melanchall.DryWetMidi.Devices;
 using Melanchall.DryWetMidi.Interaction;
 using Ookii.Dialogs.Wpf;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Numerics;
+using System.Threading;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
+using System.Windows.Shapes;
 
 namespace MidiVersion
 {
@@ -32,7 +25,13 @@ namespace MidiVersion
 
     public class HitObject
     {
+        public IAcceptsScoreUpdates game;
         public TimeSpan start;
+        protected bool interacted = false;
+        public HitObject(IAcceptsScoreUpdates attachedTo)
+        {
+            game = attachedTo;
+        }
         public virtual HitResult EvaluateHit(TimeSpan hitTime) => Math.Abs(hitTime.TotalSeconds - start.TotalSeconds) switch
         {
             0 => HitResult.Perfect,
@@ -46,11 +45,11 @@ namespace MidiVersion
         /// y = 1 -> topmost, y = -1 -> bottommost
         /// </summary>
         public Vector2 position;
-        public virtual void Render(Grid view, TimeSpan forTime)
+        public virtual bool Render(Grid view, TimeSpan forTime)
         {
-
+            return false;
         }
-        public virtual bool CanDispose(TimeSpan atTime) => atTime > start + TimeSpan.FromSeconds(0.5);
+        public virtual bool CanDispose(TimeSpan atTime) => atTime > start + TimeSpan.FromSeconds(0.5) || interacted;
         protected static Vector2 GetLocationRelative(Grid view, Vector2 rel) => new Vector2((float)(view.ActualWidth * ((rel.X / 2) + 0.5)), (float)(view.ActualHeight * ((rel.Y / 2) + 0.5)));
         public virtual void DisposeElements(Grid g)
         {
@@ -64,13 +63,18 @@ namespace MidiVersion
         public static Style buttonStyle;
         Button b;
         Ellipse e;
-        public override void Render(Grid view, TimeSpan forTime)
+        TimeSpan mostRecent = TimeSpan.Zero;
+        public Circle(IAcceptsScoreUpdates game): base(game)
+        {
+
+        }
+        public override bool Render(Grid view, TimeSpan forTime)
         {
             base.Render(view, forTime);
             double t = Math.Max(0,(start - forTime).TotalSeconds);
             if (t > 0.5)
             {
-                return;
+                return false;
             }
             float left = GetLocationRelative(view, position).X - diameter / 2;
             float top = (float)view.ActualHeight - (GetLocationRelative(view, position).Y + diameter / 2);
@@ -96,7 +100,7 @@ namespace MidiVersion
                 e.Width = approachDiameter;
                 e.Height = approachDiameter;
             }
-            
+            return true;
         }
 
         public override void DisposeElements(Grid g)
@@ -108,7 +112,9 @@ namespace MidiVersion
 
         private void Clicked(object sender, RoutedEventArgs e)
         {
-            throw new NotImplementedException();
+            var hit = EvaluateHit(game.GetTime());
+            game.AddHit(hit);
+            interacted = true;
         }
     }
 
@@ -148,12 +154,25 @@ namespace MidiVersion
         public static double TotalSeconds(this MetricTimeSpan ms) => ms.TotalMicroseconds / 1E6;
     }
 
+    public class Scoring
+    {
+        public int combo;
+        public long score;
+    }
+
+    public interface IAcceptsScoreUpdates
+    {
+        public void AddHit(HitResult hr);
+        public TimeSpan GetTime();
+    }
+
     /// <summary>
     /// Interaction logic for MainWindow.xaml
     /// </summary>
-    public partial class MainWindow : Window
+    public partial class MainWindow : Window, IAcceptsScoreUpdates
     {
         TimeSpan currentTime = TimeSpan.Zero;
+        DateTime lastUpdate = DateTime.Now;
 
         public MainWindow()
         {
@@ -190,19 +209,26 @@ namespace MidiVersion
 
         private long medianNoteDuration(List<Note> track) => track.Select(x => x.duration).ToList().GetMedian();
         private long medianNoteSpacing(List<Note> track) => track.Zip(track.Skip(1)).Select(x => x.Second.start - x.First.start).ToList().GetMedian();
-        private double meanNoteSpacing(List<Note> track) => track.Zip(track.Skip(1)).Select(x => x.Second.start - x.First.start).ToList().Average();
+        private double meanNoteSpacing(List<Note> track) => track.Zip(track.Skip(1)).Select(x => x.Second.start - x.First.start).Average();
+        private double minNoteSpacing(List<Note> track) => track.Zip(track.Skip(1)).Select(x => x.Second.start - x.First.start).Where(x => x != 0).Min();
+        private double maxNoteSpacing(List<Note> track) => track.Zip(track.Skip(1)).Select(x => x.Second.start - x.First.start).Max();
 
 
         List<HitObject> objects = new List<HitObject>();
 
         private void PerformGameUpdate(TimeSpan time)
         {
+            lastUpdate = DateTime.Now;
             var toDelete = objects.Where(x => x.CanDispose(time));
             foreach (var r in toDelete) { r.DisposeElements(GameGrid); }
             objects.RemoveAll(x => x.CanDispose(time));
-            foreach (var o in objects) o.Render(GameGrid, time);
+            foreach (var o in objects)
+                if (!o.Render(GameGrid, time))
+                    break;
         }
 
+        private long lengthEvents;
+        private double lengthSeconds;
         private List<Track> FindLandmarks(MidiFile file)
         {
             var chunks = from TrackChunk midichunk in file.Chunks
@@ -211,11 +237,11 @@ namespace MidiVersion
                          select (midichunk, ((SequenceTrackNameEvent)midiitem).Text);
             List<Track> tracks = new List<Track>();
             TempoMap tempoMap = file.GetTempoMap();
-            double seconds = (file
+            lengthSeconds = (file
                                 .GetTimedEvents()
                                 .LastOrDefault(e => e.Event is NoteOffEvent)
                                 ?.TimeAs<MetricTimeSpan>(tempoMap) ?? new MetricTimeSpan()).TotalSeconds();
-            long maxTime = 0;
+            lengthEvents = 0;
             foreach  (var chunk in chunks)
             {
                 List<Note> notes = new List<Note>();
@@ -232,7 +258,7 @@ namespace MidiVersion
                                 first = currentTime;
                             break;
                         case NoteOffEvent ev:
-                            maxTime = Math.Max(maxTime, currentTime);
+                            lengthEvents = Math.Max(lengthEvents, currentTime);
                             for (int i = notes.Count - 1; i > 0; i--)
                                 if (notes[i].num == ev.NoteNumber)
                                 {
@@ -244,9 +270,23 @@ namespace MidiVersion
                 }
                 tracks.Add(new Track { notes = notes, name = chunk.Text });
             }
-            var ordered = tracks.Where(x => x.notes.Select(x => x.start).Distinct().Count() > seconds / 2 && x.notes.Select(x => x.start).Distinct().Count() < seconds * 8).OrderByDescending(x => medianNoteSpacing(x.notes) + meanNoteSpacing(x.notes)).ToList();
+            var preorder = tracks.Where(x => x.notes.Select(x => x.start).Distinct().Count() > lengthSeconds / 2 && x.notes.Select(x => x.start).Distinct().Count() < lengthSeconds * 8).Select(x => (x, scoreTrack(x))).OrderByDescending(x => x.Item2).ToList();
+            var ordered = preorder.Select(x => x.x).ToList();
             return ordered;
         }
+
+        private double scoreTrack(Track t)
+        {
+            double medianSpacing = medianNoteSpacing(t.notes);
+            double meanSpacing = meanNoteSpacing(t.notes);
+            double maxSpacing = maxNoteSpacing(t.notes);
+            double minSpacing = minNoteSpacing(t.notes);
+            double spacingRange = maxSpacing - minSpacing;
+            double firstNoteStart = t.notes.First().start;
+            return (medianSpacing + meanSpacing) * t.notes.Count - maxSpacing - spacingRange * 0.2 - firstNoteStart;
+        }
+
+        private double getSecondsForEvent(long eventTime) => eventTime / (double)lengthEvents * lengthSeconds;
 
         private Playback _playback;
         private OutputDevice _outputDevice;
@@ -264,7 +304,7 @@ namespace MidiVersion
             }, null, 10, 10);
             var midiFile = MidiFile.Read(Filepath);
             var landmarks = FindLandmarks(midiFile);
-            objects = Enumerable.Range(0,100).Select(x => new Circle { position = Vector2.Zero, start = TimeSpan.FromSeconds(x * 4) } as HitObject).ToList();//landmarks.First().notes.Select(x => new Circle { position = Vector2.Zero, start = x. });
+            objects = landmarks.First().notes.Select(x => getSecondsForEvent(x.start)).Select(x => TimeSpan.FromSeconds(x)).Select(x => new Circle(this) { position = Vector2.Zero, start = x }).Select(x => x as HitObject).ToList();
             _outputDevice = OutputDevice.GetByName("Microsoft GS Wavetable Synth");
 
             _playback = midiFile.GetPlayback(_outputDevice);
@@ -272,7 +312,7 @@ namespace MidiVersion
             _playback.Start();
 
             _playback.Finished += Finished;
-            
+            scoring = new Scoring();
         }
 
         private void Finished(object sender, EventArgs e)
@@ -285,10 +325,25 @@ namespace MidiVersion
         {
             Application.Current.Dispatcher.Invoke(() =>
             {
-                Title = $"{_playback.GetCurrentTime(TimeSpanType.Metric)}";
                 currentTime = _playback.GetCurrentTime(TimeSpanType.Metric) as MetricTimeSpan;
+                lastUpdate = DateTime.Now;
             });
             
+        }
+        Scoring scoring;
+        public void AddHit(HitResult hr)
+        {
+            if (hr <= HitResult.OK)
+                scoring.combo = 0;
+            else
+                scoring.combo++;
+            scoring.score += scoring.combo * (int)hr;
+            Title = $"Score: {scoring.score}, Combo: {scoring.combo}";
+        }
+
+        public TimeSpan GetTime()
+        {
+            return currentTime + (DateTime.Now - lastUpdate);
         }
     }
 }
