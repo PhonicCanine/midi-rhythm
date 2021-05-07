@@ -11,6 +11,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using LengthConverter = Melanchall.DryWetMidi.Interaction.LengthConverter;
 
 namespace MidiVersion
 {
@@ -38,7 +39,7 @@ namespace MidiVersion
             0 => HitResult.Perfect,
             <= 0.1 => HitResult.Great,
             <= 0.15 => HitResult.OK,
-            <= 0.2 => HitResult.Meh,
+            <= 0.4 => HitResult.Meh,
             _ => HitResult.Miss
         };
         /// <summary>
@@ -50,8 +51,7 @@ namespace MidiVersion
         {
             return false;
         }
-        
-        public virtual bool CanDispose(TimeSpan atTime) => atTime > start + TimeSpan.FromSeconds(0.5) || interacted; // If the time is late enough, we can delete the hitObject.
+        public virtual bool CanDispose(TimeSpan atTime) => atTime > start + TimeSpan.FromSeconds(0.4) || interacted;
         protected static Vector2 GetLocationRelative(Grid view, Vector2 rel) => new Vector2((float)(view.ActualWidth * ((rel.X / 2) + 0.5)), (float)(view.ActualHeight * ((rel.Y / 2) + 0.5)));
         public virtual void DisposeElements(Grid g)
         {
@@ -111,8 +111,9 @@ namespace MidiVersion
         {
             // Get rid of hitobject.
             base.DisposeElements(g);
-            g.Children.Remove(e); // Remove approach circle
-            g.Children.Remove(b); // Remove actual hitobject
+            g.Children.Remove(e);
+            g.Children.Remove(b);
+            if (!interacted) game.AddHit(HitResult.Miss);
         }
 
         private void Clicked(object sender, RoutedEventArgs e)
@@ -202,10 +203,9 @@ namespace MidiVersion
         class Note
         {
             public int num;
-            public long start;
             public TimeSpan startTime;
-            public long duration;
-            public byte velocity; // volume/how strongly the note was hit in the midi file.
+            public TimeSpan duration;
+            public byte velocity;
         }
 
         class Track
@@ -215,11 +215,11 @@ namespace MidiVersion
         }
 
 
-        private long medianNoteDuration(List<Note> track) => track.Select(x => x.duration).ToList().GetMedian();
-        private long medianNoteSpacing(List<Note> track) => track.Zip(track.Skip(1)).Select(x => x.Second.start - x.First.start).ToList().GetMedian();
-        private double meanNoteSpacing(List<Note> track) => track.Zip(track.Skip(1)).Select(x => x.Second.start - x.First.start).Average();
-        private double minNoteSpacing(List<Note> track) => track.Zip(track.Skip(1)).Select(x => x.Second.start - x.First.start).Where(x => x != 0).Min();
-        private double maxNoteSpacing(List<Note> track) => track.Zip(track.Skip(1)).Select(x => x.Second.start - x.First.start).Max();
+        private double medianNoteDuration(List<Note> track) => track.Select(x => x.duration.TotalMilliseconds).ToList().GetMedian();
+        private double medianNoteSpacing(List<Note> track) => track.Zip(track.Skip(1)).Select(x => x.Second.startTime - x.First.startTime).Select(x => x.TotalMilliseconds).ToList().GetMedian();
+        private double meanNoteSpacing(List<Note> track) => track.Zip(track.Skip(1)).Select(x => x.Second.startTime - x.First.startTime).Select(x => x.TotalMilliseconds).Average();
+        private double minNoteSpacing(List<Note> track) => track.Zip(track.Skip(1)).Select(x => x.Second.startTime - x.First.startTime).Select(x => x.TotalMilliseconds).Where(x => x != 0).Min();
+        private double maxNoteSpacing(List<Note> track) => track.Zip(track.Skip(1)).Select(x => x.Second.startTime - x.First.startTime).Select(x => x.TotalMilliseconds).Max();
 
 
         IEnumerable<HitObject> hitObjects; // All elements in chronologial order. Temporary
@@ -257,7 +257,6 @@ namespace MidiVersion
             displaying.RemoveAll(x => toRemove.Contains(x));
         }
 
-        private long lengthEvents;
         private double lengthSeconds;
         private List<Track> FindLandmarks(MidiFile file)
         {
@@ -271,7 +270,6 @@ namespace MidiVersion
                                 .GetTimedEvents()
                                 .LastOrDefault(e => e.Event is NoteOffEvent)
                                 ?.TimeAs<MetricTimeSpan>(tempoMap) ?? new MetricTimeSpan()).TotalSeconds();
-            lengthEvents = 0;
             foreach  (var chunk in chunks)
             {
                 List<Note> notes = new List<Note>();
@@ -280,19 +278,19 @@ namespace MidiVersion
                 foreach (MidiEvent a in chunk.midichunk.Events)
                 {
                     currentTime += a.DeltaTime;
+                    var currTimeTS = TimeConverter.ConvertTo<MetricTimeSpan>(currentTime, tempoMap);
                      switch (a)
                      {
                         case NoteOnEvent ev:
-                            notes.Add(new Note { num = ev.NoteNumber, start = currentTime, velocity = ev.Velocity });
+                            notes.Add(new Note { num = ev.NoteNumber, startTime = currTimeTS, velocity = ev.Velocity });
                             if (first == -1)
                                 first = currentTime;
                             break;
                         case NoteOffEvent ev:
-                            lengthEvents = Math.Max(lengthEvents, currentTime);
                             for (int i = notes.Count - 1; i > 0; i--)
                                 if (notes[i].num == ev.NoteNumber)
                                 {
-                                    notes[i].duration = currentTime - notes[i].start;
+                                    notes[i].duration = (TimeSpan)currTimeTS - notes[i].startTime;
                                     break;
                                 }
                             break;
@@ -300,7 +298,7 @@ namespace MidiVersion
                 }
                 tracks.Add(new Track { notes = notes, name = chunk.Text });
             }
-            var preorder = tracks.Where(x => x.notes.Select(x => x.start).Distinct().Count() > lengthSeconds / 2 && x.notes.Select(x => x.start).Distinct().Count() < lengthSeconds * 8).Select(x => (x, scoreTrack(x))).OrderByDescending(x => x.Item2).ToList();
+            var preorder = tracks.Where(x => x.notes.Select(x => x.startTime).Distinct().Count() > lengthSeconds / 2 && x.notes.Select(x => x.startTime).Distinct().Count() < lengthSeconds * 8).Select(x => (x, scoreTrack(x))).OrderByDescending(x => x.Item2).ToList();
             var ordered = preorder.Select(x => x.x).ToList();
             return ordered;
         }
@@ -312,41 +310,21 @@ namespace MidiVersion
             double maxSpacing = maxNoteSpacing(t.notes);
             double minSpacing = minNoteSpacing(t.notes);
             double spacingRange = maxSpacing - minSpacing;
-            double firstNoteStart = t.notes.First().start;
+            double firstNoteStart = t.notes.First().startTime.Ticks;
             double extremespeedModifier = 0;
-            if (getSecondsForEvent((int)minSpacing) < 0.05) extremespeedModifier = 1;
+            if (minSpacing < 50) extremespeedModifier = 1;
             return (medianSpacing + meanSpacing) * (medianSpacing + meanSpacing) * t.notes.Count - (maxSpacing * maxSpacing) - spacingRange * 0.2 - firstNoteStart - (maxSpacing - minSpacing) * 100 * extremespeedModifier;
         }
 
-        private double getSecondsForEvent(long eventTime) => eventTime / (double)lengthEvents * lengthSeconds;
-
         private Playback _playback;
         private OutputDevice _outputDevice;
-        Timer t;
-
-        /// <summary>
-        /// Starts the game
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
+        Timer gameplayTimer;
+        System.Diagnostics.Stopwatch gameTimer = new System.Diagnostics.Stopwatch();
         const int timerTick = 5;
         private void Start(object sender, RoutedEventArgs e)
         {
             currentTime = TimeSpan.Zero;
             gameplayTime = TimeSpan.Zero;
-            System.Diagnostics.Stopwatch sw = new System.Diagnostics.Stopwatch();
-            sw.Start();
-            t = new Timer((t) =>
-            {
-                Application.Current.Dispatcher.Invoke(() =>
-                {
-                    PerformGameUpdate(gameplayTime);
-                    sw.Stop();
-                    gameplayTime += TimeSpan.FromMilliseconds(sw.ElapsedMilliseconds);
-                    sw.Restart();
-                });
-            }, null, timerTick, timerTick);
-
             var midiFile = MidiFile.Read(Filepath);
             List<Track> landmarks = FindLandmarks(midiFile);
             scoring = new Scoring();
@@ -359,9 +337,20 @@ namespace MidiVersion
             _outputDevice = OutputDevice.GetByName("Microsoft GS Wavetable Synth");
 
             _playback = midiFile.GetPlayback(_outputDevice);
-            _playback.EventPlayed += OnEventPlayed;
+            PlaybackCurrentTimeWatcher.Instance.AddPlayback(_playback,TimeSpanType.Metric);
+            PlaybackCurrentTimeWatcher.Instance.CurrentTimeChanged += OnCurrentTimeChanged;
+            
             _playback.Speed = 1;
+            gameplayTimer = new Timer((t) =>
+            {
+                Application.Current.Dispatcher.Invoke(() =>
+                {
+                    PerformGameUpdate(GetTime());
+                });
+            }, null, timerTick, timerTick);
+            gameTimer.Restart();
             _playback.Start();
+            PlaybackCurrentTimeWatcher.Instance.Start();
 
             _playback.Finished += Finished;
             
@@ -372,28 +361,24 @@ namespace MidiVersion
             _outputDevice.Dispose();
             _playback.Dispose();
         }
-
-        private void OnEventPlayed(object sender, MidiEventPlayedEventArgs e)
+        
+        private void OnCurrentTimeChanged(object sender, PlaybackCurrentTimeChangedEventArgs e)
         {
-            if ((DateTime.Now - lastUpdate).TotalSeconds > 0.1)
-                Application.Current.Dispatcher.Invoke(() =>
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                currentTime = e.Times.First().Time as MetricTimeSpan;
+                var diff = (currentTime - GetTime());
+                if (diff.TotalSeconds > 0.1)
                 {
-                    currentTime = _playback.GetCurrentTime(TimeSpanType.Metric) as MetricTimeSpan;
-                    lastUpdate = DateTime.Now;
-                    gameplayTime = currentTime;
-                    var diff = (currentTime - gameplayTime);
-                    if (diff.TotalSeconds > 1)
-                    {
-                        MessageBox.Show("System clock and midi clock are out of sync.", "Error!!!");
-                    }
-                });
-            
+                    MessageBox.Show("System clock and midi clock are out of sync.", "Error!!!");
+                }
+            });
         }
         Scoring scoring;
         public void AddHit(HitResult hr)
         {
-            if (hr <= HitResult.Miss)
-                scoring.combo = 0;
+            if (hr <= HitResult.Meh)
+                scoring.combo = 1;
             else
                 scoring.combo++;
             scoring.score += scoring.combo * (int)hr;
@@ -402,7 +387,7 @@ namespace MidiVersion
 
         public TimeSpan GetTime()
         {
-            return gameplayTime;
+            return gameTimer.Elapsed;
         }
 
 
