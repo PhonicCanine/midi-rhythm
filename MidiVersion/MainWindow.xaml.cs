@@ -88,14 +88,28 @@ namespace MidiVersion
 
             if (b is null)
             {
-                b = new Button { Style = buttonStyle, Background = new SolidColorBrush(Colors.Turquoise), Height = diameter, Width = diameter, Margin = new Thickness(left, top, 0, 0), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top };
+                b = new Button { 
+                    Style = buttonStyle, 
+                    Background = new SolidColorBrush(Colors.Turquoise), 
+                    Height = diameter, 
+                    Width = diameter, 
+                    Margin = new Thickness(left, top, 0, 0), 
+                    HorizontalAlignment = HorizontalAlignment.Left, 
+                    VerticalAlignment = VerticalAlignment.Top };
                 b.Click += Clicked;
                 view.Children.Add(b);
             }
             if (e is null)
             {
                 // Add approach circle
-                e = new Ellipse { Margin = new Thickness(approachLeft, approachTop, 0, 0), Width = approachDiameter, Height = approachDiameter, StrokeThickness = 2, Stroke = new SolidColorBrush(Colors.Black), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top };
+                e = new Ellipse { 
+                    Margin = new Thickness(approachLeft, approachTop, 0, 0), 
+                    Width = approachDiameter, 
+                    Height = approachDiameter, 
+                    StrokeThickness = 2, 
+                    Stroke = new SolidColorBrush(Colors.Black), 
+                    HorizontalAlignment = HorizontalAlignment.Left, 
+                    VerticalAlignment = VerticalAlignment.Top };
                 view.Children.Add(e);
             } else
             {
@@ -227,16 +241,39 @@ namespace MidiVersion
 
         private class Generator
         {
-            public bool hasNext()
+            double playfieldLength;
+            double playfieldHeight;
+            double aspectRatio;
+            double difficultyRadius;
+            LinkedList<Vector2> previousHitObjects;
+
+            int numObjectsHit = 0;
+            Grid playfield;
+            public Generator(Grid playfield)
             {
-                return true;
+                this.playfield = playfield;
+                playfieldLength = playfield.ActualWidth;
+                playfieldHeight = playfield.ActualHeight;
+                difficultyRadius = 0.4;
+                aspectRatio = playfieldLength / playfieldHeight;
+            }
+
+            public Vector2 getNextPosition()
+            {
+                Random r = new Random();
+                //if (previousHitObjects.Count == 0)
+                //{
+                double theta = r.NextDouble();
+                    return new Vector2((float)(difficultyRadius*Math.Cos(theta * 2 * Math.PI) / aspectRatio), (float)(difficultyRadius*Math.Sin(theta * 2 * Math.PI)));
+                //}
             }
             public IEnumerable<HitObject> GetHitObjects(MainWindow game, List<Track> landmarks)
             {
+                Track t = landmarks[0];
+                List<Note> n = t.notes;
                 double time = 0;
-                while (true) {
-                    time += (double)4 / (double)(game.scoring.combo + 1);
-                    yield return new Circle(game) { position = Vector2.Zero, start = TimeSpan.FromSeconds(time) }; 
+                foreach (Note note in n) {
+                    yield return new Circle(game) { position = getNextPosition(), start = note.startTime }; 
                 }
             }
         }
@@ -246,14 +283,14 @@ namespace MidiVersion
         private void PerformGameUpdate(TimeSpan time)
         {
             lastUpdate = DateTime.Now;
-            while (HitObjectEnumerator.Current.Render(GameGrid,time))
+            while (HitObjectEnumerator.Current.Render(Playfield,time))
             {
                 displaying.Add(HitObjectEnumerator.Current);
                 HitObjectEnumerator.MoveNext();
             }
-            foreach (var obj in displaying) obj.Render(GameGrid, time);
+            foreach (var obj in displaying) obj.Render(Playfield, time);
             var toRemove = displaying.Where(x => x.CanDispose(time));
-            foreach (var o in toRemove) o.DisposeElements(GameGrid);
+            foreach (var o in toRemove) o.DisposeElements(Playfield);
             displaying.RemoveAll(x => toRemove.Contains(x));
         }
 
@@ -329,7 +366,7 @@ namespace MidiVersion
             List<Track> landmarks = FindLandmarks(midiFile);
             scoring = new Scoring();
             Random r = new Random();
-            generatorInstance = new Generator();
+            generatorInstance = new Generator(Playfield);
             hitObjects = generatorInstance.GetHitObjects(this, landmarks);
             HitObjectEnumerator = hitObjects.GetEnumerator();
             HitObjectEnumerator.MoveNext();
@@ -378,7 +415,7 @@ namespace MidiVersion
         public void AddHit(HitResult hr)
         {
             if (hr <= HitResult.Meh)
-                scoring.combo = 1;
+                scoring.combo = 0;
             else
                 scoring.combo++;
             scoring.score += scoring.combo * (int)hr;
