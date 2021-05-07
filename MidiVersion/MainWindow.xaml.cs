@@ -14,6 +14,7 @@ using System.Windows.Shapes;
 
 namespace MidiVersion
 {
+
     public enum HitResult: int
     {
         Perfect = 315,
@@ -49,7 +50,8 @@ namespace MidiVersion
         {
             return false;
         }
-        public virtual bool CanDispose(TimeSpan atTime) => atTime > start + TimeSpan.FromSeconds(0.5) || interacted;
+        
+        public virtual bool CanDispose(TimeSpan atTime) => atTime > start + TimeSpan.FromSeconds(0.5) || interacted; // If the time is late enough, we can delete the hitObject.
         protected static Vector2 GetLocationRelative(Grid view, Vector2 rel) => new Vector2((float)(view.ActualWidth * ((rel.X / 2) + 0.5)), (float)(view.ActualHeight * ((rel.Y / 2) + 0.5)));
         public virtual void DisposeElements(Grid g)
         {
@@ -92,10 +94,12 @@ namespace MidiVersion
             }
             if (e is null)
             {
+                // Add approach circle
                 e = new Ellipse { Margin = new Thickness(approachLeft, approachTop, 0, 0), Width = approachDiameter, Height = approachDiameter, StrokeThickness = 2, Stroke = new SolidColorBrush(Colors.Black), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top };
                 view.Children.Add(e);
             } else
             {
+                // Make it smaller.
                 e.Margin = new Thickness(approachLeft, approachTop, 0, 0);
                 e.Width = approachDiameter;
                 e.Height = approachDiameter;
@@ -105,9 +109,10 @@ namespace MidiVersion
 
         public override void DisposeElements(Grid g)
         {
+            // Get rid of hitobject.
             base.DisposeElements(g);
-            g.Children.Remove(e);
-            g.Children.Remove(b);
+            g.Children.Remove(e); // Remove approach circle
+            g.Children.Remove(b); // Remove actual hitobject
         }
 
         private void Clicked(object sender, RoutedEventArgs e)
@@ -166,11 +171,14 @@ namespace MidiVersion
         public TimeSpan GetTime();
     }
 
+
     /// <summary>
     /// Interaction logic for MainWindow.xaml
     /// </summary>
     public partial class MainWindow : Window, IAcceptsScoreUpdates
     {
+        // Temporary for now
+        public double diffCircleRadius = 300;
         TimeSpan currentTime = TimeSpan.Zero;
         DateTime lastUpdate = DateTime.Now;
 
@@ -197,7 +205,7 @@ namespace MidiVersion
             public long start;
             public TimeSpan startTime;
             public long duration;
-            public byte velocity;
+            public byte velocity; // volume/how strongly the note was hit in the midi file.
         }
 
         class Track
@@ -214,17 +222,38 @@ namespace MidiVersion
         private double maxNoteSpacing(List<Note> track) => track.Zip(track.Skip(1)).Select(x => x.Second.start - x.First.start).Max();
 
 
-        List<HitObject> objects = new List<HitObject>();
+        IEnumerable<HitObject> hitObjects; // All elements in chronologial order. Temporary
 
+        private class Generator
+        {
+            public bool hasNext()
+            {
+                return true;
+            }
+            public IEnumerable<HitObject> GetHitObjects(MainWindow game)
+            {
+                double time = 0;
+                while (true) {
+                    time += (double)4 / (double)(game.scoring.combo + 1);
+                    yield return new Circle(game) { position = Vector2.Zero, start = TimeSpan.FromSeconds(time) }; 
+                }
+            }
+        }
+        private Generator generatorInstance;
+        private List<HitObject> displaying = new List<HitObject>();
+        IEnumerator<HitObject> HitObjectEnumerator;
         private void PerformGameUpdate(TimeSpan time)
         {
             lastUpdate = DateTime.Now;
-            var toDelete = objects.Where(x => x.CanDispose(time));
-            foreach (var r in toDelete) { r.DisposeElements(GameGrid); }
-            objects.RemoveAll(x => x.CanDispose(time));
-            foreach (var o in objects)
-                if (!o.Render(GameGrid, time))
-                    break;
+            while (HitObjectEnumerator.Current.Render(GameGrid,time))
+            {
+                displaying.Add(HitObjectEnumerator.Current);
+                HitObjectEnumerator.MoveNext();
+            }
+            foreach (var obj in displaying) obj.Render(GameGrid, time);
+            var toRemove = displaying.Where(x => x.CanDispose(time));
+            foreach (var o in toRemove) o.DisposeElements(GameGrid);
+            displaying.RemoveAll(x => toRemove.Contains(x));
         }
 
         private long lengthEvents;
@@ -291,6 +320,12 @@ namespace MidiVersion
         private Playback _playback;
         private OutputDevice _outputDevice;
         Timer t;
+
+        /// <summary>
+        /// Starts the game
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         private void Start(object sender, RoutedEventArgs e)
         {
             currentTime = TimeSpan.Zero;
@@ -304,7 +339,13 @@ namespace MidiVersion
             }, null, 10, 10);
             var midiFile = MidiFile.Read(Filepath);
             var landmarks = FindLandmarks(midiFile);
-            objects = landmarks.First().notes.Select(x => getSecondsForEvent(x.start)).Select(x => TimeSpan.FromSeconds(x)).Select(x => new Circle(this) { position = Vector2.Zero, start = x }).Select(x => x as HitObject).ToList();
+            scoring = new Scoring();
+            Random r = new Random();
+            generatorInstance = new Generator();
+            hitObjects = generatorInstance.GetHitObjects(this);
+            HitObjectEnumerator = hitObjects.GetEnumerator();
+            HitObjectEnumerator.MoveNext();
+            //hitObjects = landmarks.First().notes.Select(x => getSecondsForEvent(x.start)).Select(x => TimeSpan.FromSeconds(x)).Select(x => new Circle(this) { position = new Vector2((float) r.NextDouble(), (float) r.NextDouble()), start = x }).Select(x => x as HitObject).ToList();
             _outputDevice = OutputDevice.GetByName("Microsoft GS Wavetable Synth");
 
             _playback = midiFile.GetPlayback(_outputDevice);
@@ -312,7 +353,7 @@ namespace MidiVersion
             _playback.Start();
 
             _playback.Finished += Finished;
-            scoring = new Scoring();
+            
         }
 
         private void Finished(object sender, EventArgs e)
@@ -333,7 +374,7 @@ namespace MidiVersion
         Scoring scoring;
         public void AddHit(HitResult hr)
         {
-            if (hr <= HitResult.OK)
+            if (hr <= HitResult.Miss)
                 scoring.combo = 0;
             else
                 scoring.combo++;
@@ -345,5 +386,7 @@ namespace MidiVersion
         {
             return currentTime + (DateTime.Now - lastUpdate);
         }
+
+
     }
 }
