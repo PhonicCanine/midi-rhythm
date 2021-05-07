@@ -16,6 +16,7 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="20"></RowDefinition>
+            <RowDefinition Height="20"></RowDefinition>
             <RowDefinition Height="*"></RowDefinition>
         </Grid.RowDefinitions>
         <Menu Grid.Row="0">
@@ -25,8 +26,12 @@
         <!--<Grid Grid.Row="1">
             <TextBlock x:Name="ScoreTextBlock"/>
         </Grid>-->
-        <Grid Grid.Row="1" Name="GameGrid">
+        <Grid Grid.Row="1" Name="Score">
             <TextBlock x:Name="ScoreTextBlock"/>
+        </Grid>
+        <Grid Grid.Row="2" x:Name="Playfield">
+            
+            
         </Grid>
     </Grid>
 </Window>
