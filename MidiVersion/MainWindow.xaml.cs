@@ -172,6 +172,7 @@ namespace MidiVersion
     public partial class MainWindow : Window, IAcceptsScoreUpdates
     {
         TimeSpan currentTime = TimeSpan.Zero;
+        TimeSpan gameplayTime = TimeSpan.Zero;
         DateTime lastUpdate = DateTime.Now;
 
         public MainWindow()
@@ -218,7 +219,7 @@ namespace MidiVersion
 
         private void PerformGameUpdate(TimeSpan time)
         {
-            lastUpdate = DateTime.Now;
+            //lastUpdate = DateTime.Now;
             var toDelete = objects.Where(x => x.CanDispose(time));
             foreach (var r in toDelete) { r.DisposeElements(GameGrid); }
             objects.RemoveAll(x => x.CanDispose(time));
@@ -283,7 +284,9 @@ namespace MidiVersion
             double minSpacing = minNoteSpacing(t.notes);
             double spacingRange = maxSpacing - minSpacing;
             double firstNoteStart = t.notes.First().start;
-            return (medianSpacing + meanSpacing) * t.notes.Count - maxSpacing - spacingRange * 0.2 - firstNoteStart;
+            double extremespeedModifier = 0;
+            if (getSecondsForEvent((int)minSpacing) < 0.05) extremespeedModifier = 1;
+            return (medianSpacing + meanSpacing) * (medianSpacing + meanSpacing) * t.notes.Count - (maxSpacing * maxSpacing) - spacingRange * 0.2 - firstNoteStart - (maxSpacing - minSpacing) * 100 * extremespeedModifier;
         }
 
         private double getSecondsForEvent(long eventTime) => eventTime / (double)lengthEvents * lengthSeconds;
@@ -291,24 +294,33 @@ namespace MidiVersion
         private Playback _playback;
         private OutputDevice _outputDevice;
         Timer t;
+        const int timerTick = 5;
         private void Start(object sender, RoutedEventArgs e)
         {
             currentTime = TimeSpan.Zero;
+            gameplayTime = TimeSpan.Zero;
+            System.Diagnostics.Stopwatch sw = new System.Diagnostics.Stopwatch();
+            sw.Start();
             t = new Timer((t) =>
             {
-                currentTime += TimeSpan.FromMilliseconds(10);
                 Application.Current.Dispatcher.Invoke(() =>
                 {
-                    PerformGameUpdate(currentTime);
+                    PerformGameUpdate(gameplayTime);
+                    sw.Stop();
+                    gameplayTime += TimeSpan.FromMilliseconds(sw.ElapsedMilliseconds);
+                    sw.Restart();
                 });
-            }, null, 10, 10);
+            }, null, timerTick, timerTick);
+
             var midiFile = MidiFile.Read(Filepath);
             var landmarks = FindLandmarks(midiFile);
-            objects = landmarks.First().notes.Select(x => getSecondsForEvent(x.start)).Select(x => TimeSpan.FromSeconds(x)).Select(x => new Circle(this) { position = Vector2.Zero, start = x }).Select(x => x as HitObject).ToList();
+            Random r = new Random(1);
+            objects = landmarks.First().notes.Select(x => getSecondsForEvent(x.start)).Select(x => TimeSpan.FromSeconds(x)).Distinct().Select(x => new Circle(this) { position = new Vector2((float)r.NextDouble() * 2 - 1, (float)r.NextDouble() * 2 - 1), start = x }).Select(x => x as HitObject).ToList();
             _outputDevice = OutputDevice.GetByName("Microsoft GS Wavetable Synth");
 
             _playback = midiFile.GetPlayback(_outputDevice);
             _playback.EventPlayed += OnEventPlayed;
+            _playback.Speed = 1;
             _playback.Start();
 
             _playback.Finished += Finished;
@@ -323,11 +335,18 @@ namespace MidiVersion
 
         private void OnEventPlayed(object sender, MidiEventPlayedEventArgs e)
         {
-            Application.Current.Dispatcher.Invoke(() =>
-            {
-                currentTime = _playback.GetCurrentTime(TimeSpanType.Metric) as MetricTimeSpan;
-                lastUpdate = DateTime.Now;
-            });
+            if ((DateTime.Now - lastUpdate).TotalSeconds > 0.1)
+                Application.Current.Dispatcher.Invoke(() =>
+                {
+                    currentTime = _playback.GetCurrentTime(TimeSpanType.Metric) as MetricTimeSpan;
+                    lastUpdate = DateTime.Now;
+                    gameplayTime = currentTime;
+                    var diff = (currentTime - gameplayTime);
+                    if (diff.TotalSeconds > 1)
+                    {
+                        MessageBox.Show("System clock and midi clock are out of sync.", "Error!!!");
+                    }
+                });
             
         }
         Scoring scoring;
@@ -338,12 +357,12 @@ namespace MidiVersion
             else
                 scoring.combo++;
             scoring.score += scoring.combo * (int)hr;
-            Title = $"Score: {scoring.score}, Combo: {scoring.combo}";
+            ScoreTextBlock.Text = $"Score: {scoring.score}, Combo: {scoring.combo}";
         }
 
         public TimeSpan GetTime()
         {
-            return currentTime + (DateTime.Now - lastUpdate);
+            return gameplayTime;
         }
     }
 }
