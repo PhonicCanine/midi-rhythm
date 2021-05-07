@@ -206,6 +206,7 @@ namespace MidiVersion
             public TimeSpan startTime;
             public TimeSpan duration;
             public byte velocity;
+            public byte noteNumber;
         }
 
         class Track
@@ -281,7 +282,7 @@ namespace MidiVersion
                      switch (a)
                      {
                         case NoteOnEvent ev:
-                            notes.Add(new Note { num = ev.NoteNumber, startTime = currTimeTS, velocity = ev.Velocity });
+                            notes.Add(new Note { num = ev.NoteNumber, startTime = currTimeTS, velocity = ev.Velocity, noteNumber = ev.NoteNumber });
                             if (first == -1)
                                 first = currentTime;
                             break;
