@@ -177,7 +177,6 @@ namespace MidiVersion
     /// </summary>
     public partial class MainWindow : Window, IAcceptsScoreUpdates
     {
-        // Temporary for now
         public double diffCircleRadius = 300;
         TimeSpan currentTime = TimeSpan.Zero;
         DateTime lastUpdate = DateTime.Now;
@@ -230,7 +229,7 @@ namespace MidiVersion
             {
                 return true;
             }
-            public IEnumerable<HitObject> GetHitObjects(MainWindow game)
+            public IEnumerable<HitObject> GetHitObjects(MainWindow game, List<Track> landmarks)
             {
                 double time = 0;
                 while (true) {
@@ -338,11 +337,11 @@ namespace MidiVersion
                 });
             }, null, 10, 10);
             var midiFile = MidiFile.Read(Filepath);
-            var landmarks = FindLandmarks(midiFile);
+            List<Track> landmarks = FindLandmarks(midiFile);
             scoring = new Scoring();
             Random r = new Random();
             generatorInstance = new Generator();
-            hitObjects = generatorInstance.GetHitObjects(this);
+            hitObjects = generatorInstance.GetHitObjects(this, landmarks);
             HitObjectEnumerator = hitObjects.GetEnumerator();
             HitObjectEnumerator.MoveNext();
             //hitObjects = landmarks.First().notes.Select(x => getSecondsForEvent(x.start)).Select(x => TimeSpan.FromSeconds(x)).Select(x => new Circle(this) { position = new Vector2((float) r.NextDouble(), (float) r.NextDouble()), start = x }).Select(x => x as HitObject).ToList();
