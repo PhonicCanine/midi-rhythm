@@ -232,10 +232,11 @@ namespace MidiVersion
             }
             public IEnumerable<HitObject> GetHitObjects(MainWindow game, List<Track> landmarks)
             {
+                Track t = landmarks[0];
+                List<Note> n = t.notes;
                 double time = 0;
-                while (true) {
-                    time += (double)4 / (double)(game.scoring.combo + 1);
-                    yield return new Circle(game) { position = Vector2.Zero, start = TimeSpan.FromSeconds(time) }; 
+                foreach (Note note in n) {
+                    yield return new Circle(game) { position = Vector2.Zero, start = TimeSpan.FromMilliseconds(note.start) }; 
                 }
             }
         }
@@ -244,13 +245,6 @@ namespace MidiVersion
         IEnumerator<HitObject> HitObjectEnumerator;
         private void PerformGameUpdate(TimeSpan time)
         {
-            //lastUpdate = DateTime.Now;
-            var toDelete = objects.Where(x => x.CanDispose(time));
-            foreach (var r in toDelete) { r.DisposeElements(GameGrid); }
-            objects.RemoveAll(x => x.CanDispose(time));
-            foreach (var o in objects)
-                if (!o.Render(GameGrid, time))
-                    break;
             lastUpdate = DateTime.Now;
             while (HitObjectEnumerator.Current.Render(GameGrid,time))
             {

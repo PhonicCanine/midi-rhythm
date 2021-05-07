@@ -22,11 +22,11 @@
             <MenuItem Click="OpenFile" Header="Open"/>
             <MenuItem Click="Start" Header="Start"/>
         </Menu>
-        <Grid Grid.Row="1">
+        <!--<Grid Grid.Row="1">
             <TextBlock x:Name="ScoreTextBlock"/>
-        </Grid>
+        </Grid>-->
         <Grid Grid.Row="1" Name="GameGrid">
-
+            <TextBlock x:Name="ScoreTextBlock"/>
         </Grid>
     </Grid>
 </Window>
