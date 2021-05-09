@@ -275,7 +275,7 @@ namespace MidiVersion
             private double SigmoidDiff(double x) 
             {
 
-                return (1/10) * x;
+                return (1.0/10.0) * x;
             }
             public void ProcessHitResult(HitResult hr)
             {
@@ -484,20 +484,11 @@ namespace MidiVersion
                 scoring.score += scoring.combo * (int)hr;
                 ScoreTextBlock.Text = $"Score: {scoring.score}, Combo: {scoring.combo}";
                 currentScoreIdx = order;
+                generatorInstance.ProcessHitResult(hr);
                 return true;
             }
-            //MessageBox.Show("XD");
+            
             return false;
-        }
-        public void AddHit(HitResult hr)
-        {
-            if (hr < HitResult.Meh)
-                scoring.combo = 0;
-            else
-                scoring.combo++;
-            scoring.score += scoring.combo * (int)hr;
-            generatorInstance.ProcessHitResult(hr);
-            ScoreTextBlock.Text = $"Score: {scoring.score}, Combo: {scoring.combo}";
         }
 
         public TimeSpan GetTime()
