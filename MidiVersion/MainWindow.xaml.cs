@@ -186,13 +186,26 @@ namespace MidiVersion
         public TimeSpan GetTime();
     }
 
+    class Note
+    {
+        public int num;
+        public TimeSpan startTime;
+        public TimeSpan duration;
+        public byte velocity;
+        public byte noteNumber;
+    }
+
+    class Track
+    {
+        public List<Note> notes;
+        public string name;
+    }
 
     /// <summary>
     /// Interaction logic for MainWindow.xaml
     /// </summary>
     public partial class MainWindow : Window, IAcceptsScoreUpdates
     {
-        public double diffCircleRadius = 300;
         TimeSpan currentTime = TimeSpan.Zero;
         TimeSpan gameplayTime = TimeSpan.Zero;
         DateTime lastUpdate = DateTime.Now;
@@ -213,21 +226,7 @@ namespace MidiVersion
             dialog.ShowDialog();
             Filepath = dialog.FileName;
         }
-
-        class Note
-        {
-            public int num;
-            public TimeSpan startTime;
-            public TimeSpan duration;
-            public byte velocity;
-            public byte noteNumber;
-        }
-
-        class Track
-        {
-            public List<Note> notes;
-            public string name;
-        }
+        
 
 
         private double medianNoteDuration(List<Note> track) => track.Select(x => x.duration.TotalMilliseconds).ToList().GetMedian();
@@ -239,23 +238,25 @@ namespace MidiVersion
 
         IEnumerable<HitObject> hitObjects; // All elements in chronologial order. Temporary
 
-        private class Generator
+        public class Generator
         {
             double playfieldLength;
             double playfieldHeight;
             double aspectRatio;
             double difficultyRadius;
             LinkedList<Vector2> previousHitObjects;
+            MainWindow game;
 
             int numObjectsHit = 0;
             Grid playfield;
-            public Generator(Grid playfield)
+            public Generator(Grid playfield, MainWindow game)
             {
                 this.playfield = playfield;
                 playfieldLength = playfield.ActualWidth;
                 playfieldHeight = playfield.ActualHeight;
-                difficultyRadius = 0.4;
+                difficultyRadius = 0.94;
                 aspectRatio = playfieldLength / playfieldHeight;
+                this.game = game;
             }
 
             public Vector2 getNextPosition()
@@ -267,9 +268,50 @@ namespace MidiVersion
                     return new Vector2((float)(difficultyRadius*Math.Cos(theta * 2 * Math.PI) / aspectRatio), (float)(difficultyRadius*Math.Sin(theta * 2 * Math.PI)));
                 //}
             }
-            public IEnumerable<HitObject> GetHitObjects(MainWindow game, List<Track> landmarks)
+
+            private double SigmoidDiff(double x) 
             {
-                Track t = landmarks[0];
+
+                return (1/10) * x;
+            }
+            public void ProcessHitResult(HitResult hr)
+            {
+                if (hr == HitResult.Great)
+                {
+                    if (difficultyRadius >= 0.95)
+                    {
+                        difficultyRadius = 0.95;
+                        return;
+                    }
+                    difficultyRadius += SigmoidDiff(difficultyRadius);
+                } else if (hr == HitResult.Miss)
+                {
+                    if (difficultyRadius < 0.1)
+                    {
+                        difficultyRadius = 0.1;
+                        return;
+                    }
+                    difficultyRadius -= SigmoidDiff(difficultyRadius);
+                }
+            }
+
+            Track RemoveDuplicateNotes(Track track)
+            {
+                Track newTrack = new Track();
+                newTrack.notes = new List<Note>();
+                newTrack.name = track.name;
+                TimeSpan previousTimeSpan = new TimeSpan(-1);
+                foreach(Note note in track.notes)
+                {
+                    if (note.startTime == previousTimeSpan) continue;
+                    newTrack.notes.Add(note);
+                    previousTimeSpan = note.startTime;
+                }
+                return newTrack;
+            }
+            public IEnumerable<HitObject> GetHitObjects()
+            {
+                Track t = RemoveDuplicateNotes(game.landmarks[0]);
                 List<Note> n = t.notes;
                 double time = 0;
                 foreach (Note note in n) {
@@ -277,7 +319,7 @@ namespace MidiVersion
                 }
             }
         }
-        private Generator generatorInstance;
+        public Generator generatorInstance;
         private List<HitObject> displaying = new List<HitObject>();
         IEnumerator<HitObject> HitObjectEnumerator;
         private void PerformGameUpdate(TimeSpan time)
@@ -358,16 +400,26 @@ namespace MidiVersion
         Timer gameplayTimer;
         System.Diagnostics.Stopwatch gameTimer = new System.Diagnostics.Stopwatch();
         const int timerTick = 5;
+        List<Track> landmarks;
         private void Start(object sender, RoutedEventArgs e)
         {
             currentTime = TimeSpan.Zero;
             gameplayTime = TimeSpan.Zero;
-            var midiFile = MidiFile.Read(Filepath);
-            List<Track> landmarks = FindLandmarks(midiFile);
+            MidiFile midiFile;
+            try
+            {
+                midiFile = MidiFile.Read(Filepath);
+            } catch (Exception)
+            {
+                ScoreTextBlock.Text = "Please open a midi file before starting.";
+                return;
+            }
+            this.ScoreTextBlock.Text = "";
+            this.landmarks = FindLandmarks(midiFile);
             scoring = new Scoring();
             Random r = new Random();
-            generatorInstance = new Generator(Playfield);
-            hitObjects = generatorInstance.GetHitObjects(this, landmarks);
+            generatorInstance = new Generator(Playfield, this);
+            hitObjects = generatorInstance.GetHitObjects();
             HitObjectEnumerator = hitObjects.GetEnumerator();
             HitObjectEnumerator.MoveNext();
             //hitObjects = landmarks.First().notes.Select(x => getSecondsForEvent(x.start)).Select(x => TimeSpan.FromSeconds(x)).Select(x => new Circle(this) { position = new Vector2((float) r.NextDouble(), (float) r.NextDouble()), start = x }).Select(x => x as HitObject).ToList();
@@ -414,11 +466,12 @@ namespace MidiVersion
         Scoring scoring;
         public void AddHit(HitResult hr)
         {
-            if (hr <= HitResult.Meh)
+            if (hr < HitResult.Meh)
                 scoring.combo = 0;
             else
                 scoring.combo++;
             scoring.score += scoring.combo * (int)hr;
+            generatorInstance.ProcessHitResult(hr);
             ScoreTextBlock.Text = $"Score: {scoring.score}, Combo: {scoring.combo}";
         }
 
