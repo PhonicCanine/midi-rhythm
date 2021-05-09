@@ -30,6 +30,7 @@ namespace MidiVersion
         public IAcceptsScoreUpdates game;
         public TimeSpan start;
         protected bool interacted = false;
+        public int order;
         public HitObject(IAcceptsScoreUpdates attachedTo)
         {
             game = attachedTo;
@@ -95,7 +96,9 @@ namespace MidiVersion
                     Width = diameter, 
                     Margin = new Thickness(left, top, 0, 0), 
                     HorizontalAlignment = HorizontalAlignment.Left, 
-                    VerticalAlignment = VerticalAlignment.Top };
+                    VerticalAlignment = VerticalAlignment.Top,
+                    FontSize = 30
+                };
                 b.Click += Clicked;
                 view.Children.Add(b);
             }
@@ -117,6 +120,7 @@ namespace MidiVersion
                 e.Margin = new Thickness(approachLeft, approachTop, 0, 0);
                 e.Width = approachDiameter;
                 e.Height = approachDiameter;
+                b.Content = $"{(order%9) + 1}";
             }
             return true;
         }
@@ -127,14 +131,13 @@ namespace MidiVersion
             base.DisposeElements(g);
             g.Children.Remove(e);
             g.Children.Remove(b);
-            if (!interacted) game.AddHit(HitResult.Miss);
+            if (!interacted) game.AddHit(HitResult.Miss, order);
         }
 
         private void Clicked(object sender, RoutedEventArgs e)
         {
             var hit = EvaluateHit(game.GetTime());
-            game.AddHit(hit);
-            interacted = true;
+            if (game.AddHit(hit, order)) interacted = true;
         }
     }
 
@@ -182,7 +185,7 @@ namespace MidiVersion
 
     public interface IAcceptsScoreUpdates
     {
-        public void AddHit(HitResult hr);
+        public bool AddHit(HitResult hr, int order);
         public TimeSpan GetTime();
     }
 
@@ -286,6 +289,7 @@ namespace MidiVersion
             while (HitObjectEnumerator.Current.Render(Playfield,time))
             {
                 displaying.Add(HitObjectEnumerator.Current);
+                HitObjectEnumerator.Current.order = currentObjIdx++;
                 HitObjectEnumerator.MoveNext();
             }
             foreach (var obj in displaying) obj.Render(Playfield, time);
@@ -358,10 +362,13 @@ namespace MidiVersion
         Timer gameplayTimer;
         System.Diagnostics.Stopwatch gameTimer = new System.Diagnostics.Stopwatch();
         const int timerTick = 5;
+        int currentObjIdx;
         private void Start(object sender, RoutedEventArgs e)
         {
             currentTime = TimeSpan.Zero;
             gameplayTime = TimeSpan.Zero;
+            currentObjIdx = 0;
+            currentScoreIdx = -1;
             var midiFile = MidiFile.Read(Filepath);
             List<Track> landmarks = FindLandmarks(midiFile);
             scoring = new Scoring();
@@ -412,14 +419,22 @@ namespace MidiVersion
             });
         }
         Scoring scoring;
-        public void AddHit(HitResult hr)
+        int currentScoreIdx;
+        public bool AddHit(HitResult hr, int order)
         {
-            if (hr <= HitResult.Meh)
-                scoring.combo = 0;
-            else
-                scoring.combo++;
-            scoring.score += scoring.combo * (int)hr;
-            ScoreTextBlock.Text = $"Score: {scoring.score}, Combo: {scoring.combo}";
+            if (order == currentScoreIdx + 1)
+            {
+                if (hr <= HitResult.Meh)
+                    scoring.combo = 0;
+                else
+                    scoring.combo++;
+                scoring.score += scoring.combo * (int)hr;
+                ScoreTextBlock.Text = $"Score: {scoring.score}, Combo: {scoring.combo}";
+                currentScoreIdx = order;
+                return true;
+            }
+            //MessageBox.Show("XD");
+            return false;
         }
 
         public TimeSpan GetTime()
