@@ -29,6 +29,8 @@ namespace MidiVersion
     {
         public IAcceptsScoreUpdates game;
         public TimeSpan start;
+        public TimeSpan resultStarted;
+        public HitResult result;
         protected bool interacted = false;
         public int order;
         public HitObject(IAcceptsScoreUpdates attachedTo)
@@ -43,6 +45,16 @@ namespace MidiVersion
             <= 0.4 => HitResult.Meh,
             _ => HitResult.Miss
         };
+
+        public virtual Color HitResultColors(HitResult hr) => hr switch
+        {
+            HitResult.Perfect => Colors.SkyBlue,
+            HitResult.Great => Colors.Green,
+            HitResult.OK => Colors.Yellow,
+            HitResult.Meh => Colors.Orange,
+            HitResult.Miss => Colors.Red,
+            _ => Colors.Gray
+        };
         /// <summary>
         /// x = 1 -> rightmost, x = -1 -> leftmost
         /// y = 1 -> topmost, y = -1 -> bottommost
@@ -52,7 +64,7 @@ namespace MidiVersion
         {
             return false;
         }
-        public virtual bool CanDispose(TimeSpan atTime) => atTime > start + TimeSpan.FromSeconds(0.4) || interacted;
+        public virtual bool CanDispose(TimeSpan atTime) => atTime > start + TimeSpan.FromSeconds(0.6) || interacted && atTime > resultStarted + TimeSpan.FromSeconds(0.2);
         protected static Vector2 GetLocationRelative(Grid view, Vector2 rel) => new Vector2((float)(view.ActualWidth * ((rel.X / 2) + 0.5)), (float)(view.ActualHeight * ((rel.Y / 2) + 0.5)));
         public virtual void DisposeElements(Grid g)
         {
@@ -66,7 +78,9 @@ namespace MidiVersion
         public static Style buttonStyle;
         Button b;
         Ellipse e;
+        Label textBlock;
         TimeSpan mostRecent = TimeSpan.Zero;
+        
         public Circle(IAcceptsScoreUpdates game): base(game)
         {
 
@@ -74,13 +88,42 @@ namespace MidiVersion
         public override bool Render(Grid view, TimeSpan forTime)
         {
             base.Render(view, forTime);
+            mostRecent = forTime;
+            float bLeft = GetLocationRelative(view, position).X;
+            float left = bLeft - diameter / 2;
+            float bTop = (float)view.ActualHeight - (GetLocationRelative(view, position).Y);
+            float top = (float)view.ActualHeight - (GetLocationRelative(view, position).Y + diameter / 2);
+
+            if (forTime > resultStarted && resultStarted != TimeSpan.Zero)
+            {
+                if (textBlock is null)
+                {
+                    textBlock = new Label
+                    {
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        HorizontalContentAlignment = HorizontalAlignment.Center,
+                        VerticalContentAlignment = VerticalAlignment.Center,
+                        FontSize = 30
+                    };
+                    textBlock.Margin = new Thickness(e.Margin.Left, e.Margin.Top, view.ActualWidth - e.Margin.Left - e.ActualWidth, view.ActualHeight - e.Margin.Top - e.ActualHeight);
+                    view.Children.Insert(view.Children.IndexOf(e) + 1,textBlock);
+                }
+                textBlock.Content = $"{(int)result}";
+                textBlock.Foreground = new SolidColorBrush(this.HitResultColors(result));
+                textBlock.Visibility = Visibility.Visible;
+                textBlock.Opacity = Math.Min((forTime-resultStarted).TotalSeconds * 10, 1);
+                return true;
+            }
+
+            if (!interacted && forTime >= start + TimeSpan.FromSeconds(0.4)) Hit(HitResult.Miss, forTime);
+
             double t = Math.Max(0,(start - forTime).TotalSeconds);
             if (t > 0.5)
             {
                 return false;
             }
-            float left = GetLocationRelative(view, position).X - diameter / 2;
-            float top = (float)view.ActualHeight - (GetLocationRelative(view, position).Y + diameter / 2);
+            
 
             float approachDiameter = (float)(diameter * (t*4+1));
             float approachLeft = GetLocationRelative(view, position).X - approachDiameter / 2;
@@ -131,13 +174,23 @@ namespace MidiVersion
             base.DisposeElements(g);
             g.Children.Remove(e);
             g.Children.Remove(b);
-            if (!interacted) game.AddHit(HitResult.Miss, order);
+            g.Children.Remove(textBlock);
+        }
+
+        private void Hit(HitResult hit, TimeSpan time)
+        {
+            if (game.AddHit(hit, order))
+            {
+                interacted = true;
+                result = hit;
+                resultStarted = mostRecent;
+            }
         }
 
         private void Clicked(object sender, RoutedEventArgs e)
         {
             var hit = EvaluateHit(game.GetTime());
-            if (game.AddHit(hit, order)) interacted = true;
+            Hit(hit, game.GetTime());
         }
     }
 
