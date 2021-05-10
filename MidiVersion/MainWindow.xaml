@@ -30,8 +30,8 @@
             <TextBlock x:Name="ScoreTextBlock"/>
         </Grid>
         <Grid Grid.Row="2" x:Name="Playfield">
-            
-            
+
+
         </Grid>
     </Grid>
 </Window>
