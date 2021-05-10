@@ -15,7 +15,6 @@ using LengthConverter = Melanchall.DryWetMidi.Interaction.LengthConverter;
 
 namespace MidiVersion
 {
-
     public enum HitResult: int
     {
         Perfect = 315,
@@ -23,6 +22,49 @@ namespace MidiVersion
         OK = 100,
         Meh = 50,
         Miss = 0
+    }
+
+    public class PolarVector2
+    {
+        public double magnitude;
+        private double angle; // needs to always be positive for easy calculations.
+        public double Angle
+        {
+            get { return angle; }
+            set
+            {
+                // Need to ensure that angle > 0 when setting.
+                if (value < 0)
+                {
+                    int mul = (int)Math.Abs(value / (2.0 * Math.PI)) + 1;
+                    angle = value + 2.0 * Math.PI * mul;
+                }
+                else if (value >= 2.0*Math.PI)
+                {
+                    int mul = (int)(value / (2.0 * Math.PI));
+                    angle = value - 2.0 * Math.PI * mul;
+                }
+                else angle = value;
+            }
+        }
+
+        public PolarVector2(double m, double a)
+        {
+            magnitude = m;
+            angle = a;
+        }
+
+        public Vector2 ToVector2()
+        {
+            return new Vector2((float)(magnitude * Math.Cos(angle)), (float)(magnitude * Math.Sin(angle)));
+        }
+
+        public Vector2 ToVector2(double xAspectRatio)
+        {
+            Vector2 v = ToVector2();
+            v.X /= (float)xAspectRatio;
+            return v;
+        }
     }
 
     public class HitObject
@@ -48,6 +90,16 @@ namespace MidiVersion
         /// y = 1 -> topmost, y = -1 -> bottommost
         /// </summary>
         public Vector2 position;
+        private PolarVector2 polarPosition;
+
+        public void SetPolarPosition(PolarVector2 p, double aspectRatio)
+        {
+            polarPosition = p;
+            position = p.ToVector2(aspectRatio);
+        }
+
+        public PolarVector2 PolarPosition { get { return polarPosition; } }
+
         public virtual bool Render(Grid view, TimeSpan forTime)
         {
             return false;
@@ -62,7 +114,7 @@ namespace MidiVersion
 
     public class Circle: HitObject
     {
-        const float diameter = 75;
+        const float diameter = 75; // Diameter of hitcircle.
         public static Style buttonStyle;
         Button b;
         Ellipse e;
@@ -246,8 +298,20 @@ namespace MidiVersion
             double playfieldLength;
             double playfieldHeight;
             double aspectRatio;
-            double difficultyRadius;
-            LinkedList<Vector2> previousHitObjects;
+            private double difficultyRadius; // Radius of the large circle to place notes on
+            public double DifficultyRadius 
+            {
+                get { return difficultyRadius; }
+                set
+                {
+                    if (value > 0.9) difficultyRadius = 0.9;
+                    else if (value < 0.2) difficultyRadius = 0.3;
+                    else difficultyRadius = value;
+                }
+            }
+            
+            double overallDifficulty; // Helps determine how far each note should be placed. When below 1, the circles should not overlap. Max is 5
+            LinkedList<HitObject> previousHitObjects;
             MainWindow game;
 
             int numObjectsHit = 0;
@@ -257,45 +321,62 @@ namespace MidiVersion
                 this.playfield = playfield;
                 playfieldLength = playfield.ActualWidth;
                 playfieldHeight = playfield.ActualHeight;
-                difficultyRadius = 0.94;
+                DifficultyRadius = 0.7;
+                overallDifficulty = 0.5;
                 aspectRatio = playfieldLength / playfieldHeight;
+                previousHitObjects = new LinkedList<HitObject>();
                 this.game = game;
             }
 
-            public Vector2 getNextPosition()
+            public double GetNewLength()
             {
-                Random r = new Random();
-                //if (previousHitObjects.Count == 0)
-                //{
-                double theta = r.NextDouble();
-                    return new Vector2((float)(difficultyRadius*Math.Cos(theta * 2 * Math.PI) / aspectRatio), (float)(difficultyRadius*Math.Sin(theta * 2 * Math.PI)));
-                //}
+                double proposed = overallDifficulty / (5.0 * 2.0 * DifficultyRadius);
+                if (proposed > 1.5) return 1.5;
+                if (proposed < 0) return 0.3;
+                return proposed;
             }
 
-            private double SigmoidDiff(double x) 
+            public PolarVector2 getNextPosition()
             {
+                Random r = new Random();
+                if (previousHitObjects.Count == 0)
+                {
+                    double theta = r.NextDouble() * 2.0 * Math.PI;
+                    return new PolarVector2(DifficultyRadius, theta); // Note that theta will always be positive.
+                }
+                //if (previousHitObjects.Count <= 2)
+                //{
+                    // Get new length;
+                    double newLength = GetNewLength();
+                    // get previous radius
+                    HitObject previous = previousHitObjects.Last.Value;
+                    double previousRadius = previous.PolarPosition.magnitude;
+                    double previousAngle = previous.PolarPosition.Angle; // radians. Guaranteed to be positive.
 
-                return (1/10) * x;
+                    double angleDifference = Math.Acos((Math.Pow(newLength, 2.0) - Math.Pow(previousRadius, 2.0) - Math.Pow(DifficultyRadius, 2.0)) / (-2.0 * previousRadius * DifficultyRadius));
+                    double[] multipliers = new double[] { -1, 1 };
+                    int idx = r.Next(2);
+                    double newAngle = previousAngle + multipliers[idx] * angleDifference;
+                    return new PolarVector2(DifficultyRadius, newAngle);
+                //}
+                // Get the previous 2 hitcircles, determine orientation, and place the circle accordingly.
+                //HitObject h1 = previousHitObjects.Last.Previous.Value;
+                //HitObject h2 = previousHitObjects.Last.Value;
+                //double h1Angle = h1.PolarPosition.Angle;
+                //double h2Angle = h2.PolarPosition.Angle;
+                // Attempt to use a line integral to determine orientation of the two points relative to the current circle.
+                // There's 3 hitobjects in the list.
+
+            }
+
+            public double SigmoidDiffChange(double x)
+            {
+                return (1.0 / 30.0) * (12.0 * Math.Exp(-12.0 * (x - 0.5))) / Math.Pow(1.0 + Math.Exp(-12.0 * (x - 0.5)), 2);
             }
             public void ProcessHitResult(HitResult hr)
             {
-                if (hr == HitResult.Great)
-                {
-                    if (difficultyRadius >= 0.95)
-                    {
-                        difficultyRadius = 0.95;
-                        return;
-                    }
-                    difficultyRadius += SigmoidDiff(difficultyRadius);
-                } else if (hr == HitResult.Miss)
-                {
-                    if (difficultyRadius < 0.1)
-                    {
-                        difficultyRadius = 0.1;
-                        return;
-                    }
-                    difficultyRadius -= SigmoidDiff(difficultyRadius);
-                }
+                if (hr == HitResult.Great) DifficultyRadius += SigmoidDiffChange(DifficultyRadius);
+                else if (hr == HitResult.Miss) DifficultyRadius -= SigmoidDiffChange(DifficultyRadius);
             }
 
             Track RemoveDuplicateNotes(Track track)
@@ -318,9 +399,12 @@ namespace MidiVersion
                 List<Note> n = t.notes;
                 double time = 0;
                 foreach (Note note in n) {
-                    yield return new Circle(game) { position = getNextPosition(), start = note.startTime }; 
+                    Circle c = new Circle(game) { start = note.startTime };
+                    c.SetPolarPosition(getNextPosition(), aspectRatio);
+                    yield return c; 
                 }
             }
+
         }
         public Generator generatorInstance;
         private List<HitObject> displaying = new List<HitObject>();
@@ -482,22 +566,13 @@ namespace MidiVersion
                 else
                     scoring.combo++;
                 scoring.score += scoring.combo * (int)hr;
+                generatorInstance.ProcessHitResult(hr);
                 ScoreTextBlock.Text = $"Score: {scoring.score}, Combo: {scoring.combo}";
                 currentScoreIdx = order;
                 return true;
             }
             //MessageBox.Show("XD");
             return false;
-        }
-        public void AddHit(HitResult hr)
-        {
-            if (hr < HitResult.Meh)
-                scoring.combo = 0;
-            else
-                scoring.combo++;
-            scoring.score += scoring.combo * (int)hr;
-            generatorInstance.ProcessHitResult(hr);
-            ScoreTextBlock.Text = $"Score: {scoring.score}, Combo: {scoring.combo}";
         }
 
         public TimeSpan GetTime()
