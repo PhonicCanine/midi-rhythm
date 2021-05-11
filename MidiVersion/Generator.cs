@@ -16,11 +16,37 @@ namespace MidiVersion
             Linear,
             Anticlockwise
         }
+        Vector2 NULL_VECTOR = new Vector2(-2);
+        const double MAX_OVERALL_DIFFICULTY = 0.4;
+        const double MIN_OVERALL_DIFFICULTY = 0;
         double playfieldLength;
         double playfieldHeight;
         double aspectRatio;
         double currentTempo; // in BPM. Assume a 4/4 time signature.
         private double difficultyRadius; // Radius of the large circle to place notes on
+        List<Note> mergedLandmarks; // All the instruments merged into the same list. Duplicate notes have an averaged "pitch"
+        // Helps determine how far each note should be placed. When below 0.5, the circles should not overlap. Max is 1
+        // For simplicity we don't factor in harder diffs.
+        double overallDifficulty;
+        LinkedList<HitObject> previousHitObjects;
+        MainWindow game;
+        int numObjectsHit = 0;
+        Grid playfield;
+
+        public double OverallDifficulty
+        {
+            get
+            {
+                return overallDifficulty;
+            }
+            set
+            {
+                if (value < MIN_OVERALL_DIFFICULTY) overallDifficulty = MIN_OVERALL_DIFFICULTY;
+                else if (value > MAX_OVERALL_DIFFICULTY) overallDifficulty = MAX_OVERALL_DIFFICULTY;
+                else overallDifficulty = value;
+            }
+        }
+
         public double DifficultyRadius
         {
             get { return difficultyRadius; }
@@ -41,7 +67,7 @@ namespace MidiVersion
         {
             return 60.0 / (currentTempo * divisor);
         }
-        public double GetClosestTempoDivisionFromNoteSpacing(Note n1, Note n2)
+        public int GetClosestTempoDivisorFromNoteSpacing(Note n1, Note n2)
         {
             // Assume n2 comes later than n1.
             TimeSpan n1Start = n1.startTime;
@@ -49,30 +75,23 @@ namespace MidiVersion
             TimeSpan diff = n2Start - n1Start;
             double diffSeconds = diff.TotalSeconds;
 
-            return Math.Round(60.0 / (currentTempo * diffSeconds));
+            return (int)Math.Round(60.0 / (currentTempo * diffSeconds));
         }
 
-        // Helps determine how far each note should be placed. When below 0.5, the circles should not overlap. Max is 1
-        // For simplicity we don't factor in harder diffs.
-        double overallDifficulty;
-        public double OverallDifficulty
+        public Track MergeTracks(List<Track> tracks)
         {
-            get
+            Track newTrack = new Track();
+            newTrack.name = "All Notes";
+            newTrack.notes = new List<Note>();
+            foreach (Track track in tracks)
             {
-                return overallDifficulty;
+                newTrack.notes.AddRange(track.notes);
             }
-            set
-            {
-                if (value < 0) overallDifficulty = 0;
-                else if (value > 1) overallDifficulty = 1;
-                else overallDifficulty = value;
-            }
+            newTrack.notes.Sort(); // Sort the notes in chronologial order.
+            return newTrack;
         }
-        LinkedList<HitObject> previousHitObjects;
-        MainWindow game;
 
-        int numObjectsHit = 0;
-        Grid playfield;
+        
         public Generator(Grid playfield, MainWindow game)
         {
             this.playfield = playfield;
@@ -94,7 +113,11 @@ namespace MidiVersion
             return proposed;
         }
 
-        public PolarVector2 getNextPosition()
+        /// <summary>
+        /// The old NextPosition function.
+        /// </summary>
+        /// <returns>A PolarVector2 representing the next hitcircle position.</returns>
+        public PolarVector2 GetNextPolarPosition()
         {
             Random r = new Random();
             if (previousHitObjects.Count == 0)
@@ -131,6 +154,65 @@ namespace MidiVersion
 
         }
 
+        /// <summary>
+        /// Converts BPM to SPB (Seconds per Beat)
+        /// </summary>
+        /// <returns></returns>
+        public double BPMToSPB(double bpm) => 60.0 / bpm;
+
+        /// <summary>
+        /// This is the NextPosition function that we want to use.
+        /// </summary>
+        /// <param name="noteToPlace">The note that will be associated with the placed hitcircle.</param>
+        /// <returns>A vector containing the next position.</returns>
+        public Vector2 GetNextPosition(Note noteToPlace)
+        {
+            Random r = new Random();
+            if (previousHitObjects.Count == 0)
+            {
+                return new Vector2((float)(r.NextDouble() * 2 - 1), (float)(r.NextDouble() * 2 - 1));
+            }
+
+            // Consider overall difficulty.
+            HitObject previousObject = previousHitObjects.Last.Value;
+            Note previousNote = previousObject.associatedNote;
+            int closestTempoDivisor = GetClosestTempoDivisorFromNoteSpacing(previousNote, noteToPlace);
+            
+            // If the closestTempoDivisor is too high, we return NULL_VECTOR, essentially skipping the note.
+            if (overallDifficulty < 0.25 && closestTempoDivisor > 1) return NULL_VECTOR;
+            if (overallDifficulty < 0.4 && closestTempoDivisor > 2) return NULL_VECTOR;
+            if (overallDifficulty >= 0.4) return NULL_VECTOR; // TEMPORARY FOR NOW. WANT TO CONSIDER LOWER DIFFS.
+
+            double playfieldNoteSpacing;
+
+            // For overall difficulty less than 0.4, we want distance between notes on the timeline to be
+            // proportionate to distance between notes on the playfield.
+            // The overall difficulty does not influence this difference
+            // but the BPM and timeline distance does. Fast BPM && close distance on timeline ==> closer spacing.
+            if (overallDifficulty < 0.4)
+            {
+                playfieldNoteSpacing = BPMToSPB(previousNote.tempo) / (2 * closestTempoDivisor);
+            } else
+            {
+
+            }
+
+            if (previousHitObjects.Count == 1)
+            {
+                // Choose range of values for the output vector such that note is still on screen 
+
+            } else if (previousHitObjects.Count == 2)
+            {
+                // Same as above condition, but now the vector to output must not overlap with the 2nd last
+                // hitcircle.
+            } else
+            {
+                // Same as above condition, but now the new circle must maintain the orientation defined by the last three circles
+                // (as defined by the shoelace formula - the GetOrientation function) unless the circle to place is forced to be off-screen.
+            }
+            return new Vector2(0);
+        }   
+
         public double SigmoidDiffChange(double x)
         {
             return (1.0 / 30.0) * (12.0 * Math.Exp(-12.0 * (x - 0.5))) / Math.Pow(1.0 + Math.Exp(-12.0 * (x - 0.5)), 2);
@@ -155,7 +237,7 @@ namespace MidiVersion
             return Orientation.Anticlockwise;
         }
 
-        Track RemoveDuplicateNotes(Track track)
+        public Track RemoveDuplicateNotes(Track track)
         {
             Track newTrack = new Track();
             newTrack.notes = new List<Note>();
@@ -178,16 +260,25 @@ namespace MidiVersion
                 previousHitObjects.RemoveFirst();
             }
         }
+
+        /// <summary>
+        /// Function that generates the dynamic hitcircles one a a time.
+        /// </summary>
+        /// <returns>A hitobject.</returns>
         public IEnumerable<HitObject> GetHitObjects()
         {
-            Track t = RemoveDuplicateNotes(game.landmarks[0]);
+            Track t = RemoveDuplicateNotes(MergeTracks(game.landmarks));
+
             List<Note> n = t.notes;
             double time = 0;
             foreach (Note note in n)
             {
                 currentTempo = note.tempo;
                 Circle c = new Circle(game, note) { start = note.startTime };
-                c.SetPolarPosition(getNextPosition(), aspectRatio);
+                //c.SetPolarPosition(GetNextPosition(note), aspectRatio);
+                Vector2 nextPosition = GetNextPosition(note);
+                if (nextPosition == NULL_VECTOR) continue; // Skip this note.
+                c.position = nextPosition;
                 AddHitObject(c);
                 yield return c;
             }

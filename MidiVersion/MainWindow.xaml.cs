@@ -64,16 +64,6 @@ namespace MidiVersion
         public TimeSpan GetTime();
     }
 
-    public class Note
-    {
-        public int num;
-        public TimeSpan startTime;
-        public TimeSpan duration;
-        public byte velocity; // intensity of the note.
-        public byte noteNumber; // Measure of pitch.
-        public double tempo;
-    }
-
     public class Track
     {
         public List<Note> notes;
@@ -86,7 +76,6 @@ namespace MidiVersion
     public partial class MainWindow : Window, IAcceptsScoreUpdates
     {
         
-
         TimeSpan currentTime = TimeSpan.Zero;
         TimeSpan gameplayTime = TimeSpan.Zero;
         DateTime lastUpdate = DateTime.Now;
@@ -108,8 +97,6 @@ namespace MidiVersion
             Filepath = dialog.FileName;
         }
         
-
-
         private double medianNoteDuration(List<Note> track) => track.Select(x => x.duration.TotalMilliseconds).ToList().GetMedian();
         private double medianNoteSpacing(List<Note> track) => track.Zip(track.Skip(1)).Select(x => x.Second.startTime - x.First.startTime).Select(x => x.TotalMilliseconds).ToList().GetMedian();
         private double meanNoteSpacing(List<Note> track) => track.Zip(track.Skip(1)).Select(x => x.Second.startTime - x.First.startTime).Select(x => x.TotalMilliseconds).Average();
@@ -156,6 +143,7 @@ namespace MidiVersion
                 List<Note> notes = new List<Note>();
                 long currentTime = 0;
                 long first = -1;
+                Track track = new Track { name = chunk.Text };
                 foreach (MidiEvent a in chunk.midichunk.Events)
                 {
                     currentTime += a.DeltaTime;
@@ -163,7 +151,7 @@ namespace MidiVersion
                      switch (a)
                      {
                         case NoteOnEvent ev:
-                            notes.Add(new Note { num = ev.NoteNumber, startTime = currTimeTS, velocity = ev.Velocity, noteNumber = ev.NoteNumber, tempo = tempoMap.GetTempoAtTime(currTimeTS).BeatsPerMinute });
+                            notes.Add(new Note { num = ev.NoteNumber, startTime = currTimeTS, velocity = ev.Velocity, noteNumber = ev.NoteNumber, tempo = tempoMap.GetTempoAtTime(currTimeTS).BeatsPerMinute, fromTrack = track });
                             if (first == -1)
                                 first = currentTime;
                             break;
@@ -177,7 +165,8 @@ namespace MidiVersion
                             break;
                      }
                 }
-                tracks.Add(new Track { notes = notes, name = chunk.Text });
+                track.notes = notes;
+                tracks.Add(track);
             }
             var preorder = tracks.Where(x => x.notes.Select(x => x.startTime).Distinct().Count() > lengthSeconds / 2 && x.notes.Select(x => x.startTime).Distinct().Count() < lengthSeconds * 8).Select(x => (x, scoreTrack(x))).OrderByDescending(x => x.Item2).ToList();
             var ordered = preorder.Select(x => x.x).ToList();

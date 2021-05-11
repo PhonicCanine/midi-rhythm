@@ -12,7 +12,7 @@ namespace MidiVersion
 {
     public class Circle : HitObject
     {
-        const float diameter = 75; // Diameter of hitcircle.
+        const float diameter = 75; // Diameter of hitcircle (px).
         public static Style buttonStyle;
         Button b;
         Ellipse e;
