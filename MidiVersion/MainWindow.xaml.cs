@@ -15,236 +15,6 @@ using LengthConverter = Melanchall.DryWetMidi.Interaction.LengthConverter;
 
 namespace MidiVersion
 {
-    public enum HitResult: int
-    {
-        Perfect = 315,
-        Great = 300,
-        OK = 100,
-        Meh = 50,
-        Miss = 0
-    }
-
-    public class PolarVector2
-    {
-        public double magnitude;
-        private double angle; // needs to always be positive for easy calculations.
-        public double Angle
-        {
-            get { return angle; }
-            set
-            {
-                // Need to ensure that angle > 0 when setting.
-                if (value < 0)
-                {
-                    int mul = (int)Math.Abs(value / (2.0 * Math.PI)) + 1;
-                    angle = value + 2.0 * Math.PI * mul;
-                }
-                else if (value >= 2.0*Math.PI)
-                {
-                    int mul = (int)(value / (2.0 * Math.PI));
-                    angle = value - 2.0 * Math.PI * mul;
-                }
-                else angle = value;
-            }
-        }
-
-        public PolarVector2(double m, double a)
-        {
-            magnitude = m;
-            angle = a;
-        }
-
-        public Vector2 ToVector2()
-        {
-            return new Vector2((float)(magnitude * Math.Cos(angle)), (float)(magnitude * Math.Sin(angle)));
-        }
-
-        public Vector2 ToVector2(double xAspectRatio)
-        {
-            Vector2 v = ToVector2();
-            v.X /= (float)xAspectRatio;
-            return v;
-        }
-    }
-
-    public class HitObject
-    {
-        public IAcceptsScoreUpdates game;
-        public TimeSpan start;
-        public TimeSpan resultStarted;
-        public HitResult result;
-        protected bool interacted = false;
-        public int order;
-        public HitObject(IAcceptsScoreUpdates attachedTo)
-        {
-            game = attachedTo;
-        }
-        public virtual HitResult EvaluateHit(TimeSpan hitTime) => Math.Abs(hitTime.TotalSeconds - start.TotalSeconds) switch
-        {
-            0 => HitResult.Perfect,
-            <= 0.1 => HitResult.Great,
-            <= 0.15 => HitResult.OK,
-            <= 0.4 => HitResult.Meh,
-            _ => HitResult.Miss
-        };
-
-        public virtual Color HitResultColors(HitResult hr) => hr switch
-        {
-            HitResult.Perfect => Colors.SkyBlue,
-            HitResult.Great => Colors.Green,
-            HitResult.OK => Colors.Yellow,
-            HitResult.Meh => Colors.Orange,
-            HitResult.Miss => Colors.Red,
-            _ => Colors.Gray
-        };
-        /// <summary>
-        /// x = 1 -> rightmost, x = -1 -> leftmost
-        /// y = 1 -> topmost, y = -1 -> bottommost
-        /// </summary>
-        public Vector2 position;
-        private PolarVector2 polarPosition;
-
-        public void SetPolarPosition(PolarVector2 p, double aspectRatio)
-        {
-            polarPosition = p;
-            position = p.ToVector2(aspectRatio);
-        }
-
-        public PolarVector2 PolarPosition { get { return polarPosition; } }
-
-        public virtual bool Render(Grid view, TimeSpan forTime)
-        {
-            return false;
-        }
-        public virtual bool CanDispose(TimeSpan atTime) => atTime > start + TimeSpan.FromSeconds(0.6) || interacted && atTime > resultStarted + TimeSpan.FromSeconds(0.2);
-        protected static Vector2 GetLocationRelative(Grid view, Vector2 rel) => new Vector2((float)(view.ActualWidth * ((rel.X / 2) + 0.5)), (float)(view.ActualHeight * ((rel.Y / 2) + 0.5)));
-        public virtual void DisposeElements(Grid g)
-        {
-
-        }
-    }
-
-    public class Circle: HitObject
-    {
-        const float diameter = 75; // Diameter of hitcircle.
-        public static Style buttonStyle;
-        Button b;
-        Ellipse e;
-        Label textBlock;
-        TimeSpan mostRecent = TimeSpan.Zero;
-        
-        public Circle(IAcceptsScoreUpdates game): base(game)
-        {
-
-        }
-        public override bool Render(Grid view, TimeSpan forTime)
-        {
-            base.Render(view, forTime);
-            mostRecent = forTime;
-            float bLeft = GetLocationRelative(view, position).X;
-            float left = bLeft - diameter / 2;
-            float bTop = (float)view.ActualHeight - (GetLocationRelative(view, position).Y);
-            float top = (float)view.ActualHeight - (GetLocationRelative(view, position).Y + diameter / 2);
-
-            if (forTime > resultStarted && resultStarted != TimeSpan.Zero)
-            {
-                if (textBlock is null)
-                {
-                    textBlock = new Label
-                    {
-                        HorizontalAlignment = HorizontalAlignment.Center,
-                        VerticalAlignment = VerticalAlignment.Center,
-                        HorizontalContentAlignment = HorizontalAlignment.Center,
-                        VerticalContentAlignment = VerticalAlignment.Center,
-                        FontSize = 30
-                    };
-                    textBlock.Margin = new Thickness(e.Margin.Left, e.Margin.Top, view.ActualWidth - e.Margin.Left - e.ActualWidth, view.ActualHeight - e.Margin.Top - e.ActualHeight);
-                    view.Children.Insert(view.Children.IndexOf(e) + 1,textBlock);
-                }
-                textBlock.Content = $"{(int)result}";
-                textBlock.Foreground = new SolidColorBrush(this.HitResultColors(result));
-                textBlock.Visibility = Visibility.Visible;
-                textBlock.Opacity = Math.Min((forTime-resultStarted).TotalSeconds * 10, 1);
-                return true;
-            }
-
-            if (!interacted && forTime >= start + TimeSpan.FromSeconds(0.4)) Hit(HitResult.Miss, forTime);
-
-            double t = Math.Max(0,(start - forTime).TotalSeconds);
-            if (t > 0.5)
-            {
-                return false;
-            }
-            
-
-            float approachDiameter = (float)(diameter * (t*4+1));
-            float approachLeft = GetLocationRelative(view, position).X - approachDiameter / 2;
-            float approachTop = (float)view.ActualHeight - (GetLocationRelative(view, position).Y + approachDiameter / 2);
-
-
-            if (b is null)
-            {
-                b = new Button { 
-                    Style = buttonStyle, 
-                    Background = new SolidColorBrush(Colors.Turquoise), 
-                    Height = diameter, 
-                    Width = diameter, 
-                    Margin = new Thickness(left, top, 0, 0), 
-                    HorizontalAlignment = HorizontalAlignment.Left, 
-                    VerticalAlignment = VerticalAlignment.Top,
-                    FontSize = 30
-                };
-                b.Click += Clicked;
-                view.Children.Add(b);
-            }
-            if (e is null)
-            {
-                // Add approach circle
-                e = new Ellipse { 
-                    Margin = new Thickness(approachLeft, approachTop, 0, 0), 
-                    Width = approachDiameter, 
-                    Height = approachDiameter, 
-                    StrokeThickness = 2, 
-                    Stroke = new SolidColorBrush(Colors.Black), 
-                    HorizontalAlignment = HorizontalAlignment.Left, 
-                    VerticalAlignment = VerticalAlignment.Top };
-                view.Children.Add(e);
-            } else
-            {
-                // Make it smaller.
-                e.Margin = new Thickness(approachLeft, approachTop, 0, 0);
-                e.Width = approachDiameter;
-                e.Height = approachDiameter;
-                b.Content = $"{(order%9) + 1}";
-            }
-            return true;
-        }
-
-        public override void DisposeElements(Grid g)
-        {
-            // Get rid of hitobject.
-            base.DisposeElements(g);
-            g.Children.Remove(e);
-            g.Children.Remove(b);
-            g.Children.Remove(textBlock);
-        }
-
-        private void Hit(HitResult hit, TimeSpan time)
-        {
-            if (game.AddHit(hit, order))
-            {
-                interacted = true;
-                result = hit;
-                resultStarted = mostRecent;
-            }
-        }
-
-        private void Clicked(object sender, RoutedEventArgs e)
-        {
-            var hit = EvaluateHit(game.GetTime());
-            Hit(hit, game.GetTime());
-        }
-    }
 
     public interface HitObjectProvider
     {
@@ -294,17 +64,17 @@ namespace MidiVersion
         public TimeSpan GetTime();
     }
 
-    class Note
+    public class Note
     {
         public int num;
         public TimeSpan startTime;
         public TimeSpan duration;
-        public byte velocity;
-        public byte noteNumber;
+        public byte velocity; // intensity of the note.
+        public byte noteNumber; // Measure of pitch.
         public double tempo;
     }
 
-    class Track
+    public class Track
     {
         public List<Note> notes;
         public string name;
@@ -315,6 +85,8 @@ namespace MidiVersion
     /// </summary>
     public partial class MainWindow : Window, IAcceptsScoreUpdates
     {
+        
+
         TimeSpan currentTime = TimeSpan.Zero;
         TimeSpan gameplayTime = TimeSpan.Zero;
         DateTime lastUpdate = DateTime.Now;
@@ -347,119 +119,7 @@ namespace MidiVersion
 
         IEnumerable<HitObject> hitObjects; // All elements in chronologial order. Temporary
 
-        public class Generator
-        {
-            double playfieldLength;
-            double playfieldHeight;
-            double aspectRatio;
-            private double difficultyRadius; // Radius of the large circle to place notes on
-            public double DifficultyRadius 
-            {
-                get { return difficultyRadius; }
-                set
-                {
-                    if (value > 0.9) difficultyRadius = 0.9;
-                    else if (value < 0.2) difficultyRadius = 0.3;
-                    else difficultyRadius = value;
-                }
-            }
-            
-            double overallDifficulty; // Helps determine how far each note should be placed. When below 1, the circles should not overlap. Max is 5
-            LinkedList<HitObject> previousHitObjects;
-            MainWindow game;
-
-            int numObjectsHit = 0;
-            Grid playfield;
-            public Generator(Grid playfield, MainWindow game)
-            {
-                this.playfield = playfield;
-                playfieldLength = playfield.ActualWidth;
-                playfieldHeight = playfield.ActualHeight;
-                DifficultyRadius = 0.7;
-                overallDifficulty = 0.5;
-                aspectRatio = playfieldLength / playfieldHeight;
-                previousHitObjects = new LinkedList<HitObject>();
-                this.game = game;
-            }
-
-            public double GetNewLength()
-            {
-                double proposed = overallDifficulty / (5.0 * 2.0 * DifficultyRadius);
-                if (proposed > 1.5) return 1.5;
-                if (proposed < 0) return 0.3;
-                return proposed;
-            }
-
-            public PolarVector2 getNextPosition()
-            {
-                Random r = new Random();
-                if (previousHitObjects.Count == 0)
-                {
-                    double theta = r.NextDouble() * 2.0 * Math.PI;
-                    return new PolarVector2(DifficultyRadius, theta); // Note that theta will always be positive.
-                }
-                //if (previousHitObjects.Count <= 2)
-                //{
-                    // Get new length;
-                    double newLength = GetNewLength();
-                    // get previous radius
-                    HitObject previous = previousHitObjects.Last.Value;
-                    double previousRadius = previous.PolarPosition.magnitude;
-                    double previousAngle = previous.PolarPosition.Angle; // radians. Guaranteed to be positive.
-
-                    double angleDifference = Math.Acos((Math.Pow(newLength, 2.0) - Math.Pow(previousRadius, 2.0) - Math.Pow(DifficultyRadius, 2.0)) / (-2.0 * previousRadius * DifficultyRadius));
-                    double[] multipliers = new double[] { -1, 1 };
-                    int idx = r.Next(2);
-                    double newAngle = previousAngle + multipliers[idx] * angleDifference;
-                    return new PolarVector2(DifficultyRadius, newAngle);
-                //}
-                // Get the previous 2 hitcircles, determine orientation, and place the circle accordingly.
-                //HitObject h1 = previousHitObjects.Last.Previous.Value;
-                //HitObject h2 = previousHitObjects.Last.Value;
-                //double h1Angle = h1.PolarPosition.Angle;
-                //double h2Angle = h2.PolarPosition.Angle;
-                // Attempt to use a line integral to determine orientation of the two points relative to the current circle.
-                // There's 3 hitobjects in the list.
-
-            }
-
-            public double SigmoidDiffChange(double x)
-            {
-                return (1.0 / 30.0) * (12.0 * Math.Exp(-12.0 * (x - 0.5))) / Math.Pow(1.0 + Math.Exp(-12.0 * (x - 0.5)), 2);
-            }
-            public void ProcessHitResult(HitResult hr)
-            {
-                if (hr == HitResult.Great) DifficultyRadius += SigmoidDiffChange(DifficultyRadius);
-                else if (hr == HitResult.Miss) DifficultyRadius -= SigmoidDiffChange(DifficultyRadius);
-            }
-
-            Track RemoveDuplicateNotes(Track track)
-            {
-                Track newTrack = new Track();
-                newTrack.notes = new List<Note>();
-                newTrack.name = track.name;
-                TimeSpan previousTimeSpan = new TimeSpan(-1);
-                foreach(Note note in track.notes)
-                {
-                    if (note.startTime == previousTimeSpan) continue;
-                    newTrack.notes.Add(note);
-                    previousTimeSpan = note.startTime;
-                }
-                return newTrack;
-            }
-            public IEnumerable<HitObject> GetHitObjects()
-            {
-                Track t = RemoveDuplicateNotes(game.landmarks[0]);
-                List<Note> n = t.notes;
-                double time = 0;
-                foreach (Note note in n) {
-                    Circle c = new Circle(game) { start = note.startTime };
-                    c.SetPolarPosition(getNextPosition(), aspectRatio);
-                    yield return c; 
-                }
-            }
-
-        }
+        
         public Generator generatorInstance;
         private List<HitObject> displaying = new List<HitObject>();
         IEnumerator<HitObject> HitObjectEnumerator;
@@ -542,7 +202,7 @@ namespace MidiVersion
         Timer gameplayTimer;
         System.Diagnostics.Stopwatch gameTimer = new System.Diagnostics.Stopwatch();
         const int timerTick = 5;
-        List<Track> landmarks;
+        public List<Track> landmarks;
         int currentObjIdx;
         private void Start(object sender, RoutedEventArgs e)
         {
@@ -620,7 +280,6 @@ namespace MidiVersion
                 else
                     scoring.combo++;
                 scoring.score += scoring.combo * (int)hr;
-                generatorInstance.ProcessHitResult(hr);
                 ScoreTextBlock.Text = $"Score: {scoring.score}, Combo: {scoring.combo}";
                 currentScoreIdx = order;
                 generatorInstance.ProcessHitResult(hr);
