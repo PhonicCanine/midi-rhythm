@@ -14,9 +14,10 @@ namespace MidiVersion
         {
             Clockwise,
             Linear,
-            Anticlockwise
+            Anticlockwise,
+            Indeterminate
         }
-        Vector2 NULL_VECTOR = new Vector2(-2);
+        public readonly static Vector2 NULL_VECTOR = new Vector2(-2);
         const double MAX_OVERALL_DIFFICULTY = 0.4;
         const double MIN_OVERALL_DIFFICULTY = 0;
         double playfieldLength;
@@ -160,6 +161,113 @@ namespace MidiVersion
         /// <returns></returns>
         public double BPMToSPB(double bpm) => 60.0 / bpm;
 
+        public Vector2 CreateDistanceVector(double dist, double angle) => new PolarVector2(dist, angle).ToVector2(aspectRatio);
+        
+        public bool IsPositionWithinPlayfield(Vector2 pos)
+        {
+            if (pos.X <= 1 && pos.Y <= 1 && pos.X >= -1 && pos.Y >= -1) return true;
+            return false;
+        }
+
+        public enum PlayfieldSides { Top, Right, Bottom, Left }
+        public List<PlayfieldSides> GetCloseEdges(double dist, Vector2 previous)
+        {
+            Vector2 change1 = CreateDistanceVector(dist, 0);
+            Vector2 change2 = CreateDistanceVector(dist, Math.PI/2.0);
+            Vector2 change3 = CreateDistanceVector(dist, Math.PI);
+            Vector2 change4 = CreateDistanceVector(dist, 3.0 * Math.PI / 2.0);
+            List<PlayfieldSides> closeSides = new List<PlayfieldSides>();
+            if (!IsPositionWithinPlayfield(previous + change1)) closeSides.Add(PlayfieldSides.Right);
+            if (!IsPositionWithinPlayfield(previous + change2)) closeSides.Add(PlayfieldSides.Top);
+            if (!IsPositionWithinPlayfield(previous + change3)) closeSides.Add(PlayfieldSides.Left);
+            if (!IsPositionWithinPlayfield(previous + change1)) closeSides.Add(PlayfieldSides.Bottom);
+
+            return closeSides;
+        }
+
+        public Orientation GetCurrentOrientation()
+        {
+            if (previousHitObjects.Count < 2) return Orientation.Indeterminate; // Inconclusive.
+            if (previousHitObjects.Count == 2) return Orientation.Linear;
+            // Get previous three hitcircles.
+            LinkedListNode<HitObject> ptr = previousHitObjects.Last;
+            HitObject h1 = ptr.Value;
+            ptr = ptr.Previous;
+            HitObject h2 = ptr.Value;
+            ptr = ptr.Previous;
+            HitObject h3 = ptr.Value;
+            ptr = ptr.Previous;
+            Orientation o = GetOrientation(h3, h2, h1);
+            // Keep going backwards until we find a nonLinear orientation.
+            while (o == Orientation.Linear && ptr.Value != null)
+            {
+                h1 = h2;
+                h2 = h3;
+                h3 = ptr.Value;
+                o = GetOrientation(h3, h2, h1);
+                ptr = ptr.Previous;
+            }
+            return o;
+        }
+
+        /// <summary>
+        /// Gets the next position within the playfield, assuming there is at least one previous hitcircle.
+        /// </summary>
+        /// <param name="dist">The required distance between the previous hitcircle and the next one.</param>
+        /// <returns>A vector representing the position of the next hitcircle.</returns>
+        public Vector2 GetNextPositionWithinPlayField(double dist)
+        {
+            Random r = new Random();
+            LinkedListNode<HitObject> ptr = previousHitObjects.Last;
+            HitObject last = ptr.Value;
+            List<PlayfieldSides> closeSides = GetCloseEdges(dist, last.position);
+            // Three cases to consider:
+
+            // Case 1: potential distance vector + previous circle position has x and y values less than 1 for sure.
+            if (closeSides.Count == 0)
+            {
+                // We have all the freedom to place the hitcircle wherever we want, as long as orientation is maintained.
+                Orientation orientation = GetCurrentOrientation();
+                if (orientation == Orientation.Indeterminate)
+                {
+                    double angle = 2 * Math.PI * r.NextDouble();
+                    Vector2 distanceVector = CreateDistanceVector(dist, angle);
+                    return last.position + distanceVector;
+                }
+                // If the given orientation is linear, we choose a random definitive orientation.
+                if (orientation == Orientation.Linear)
+                {
+                    Orientation[] choices = new Orientation[] { Orientation.Clockwise, Orientation.Anticlockwise };
+                    int choice = r.Next(choices.Length);
+                    orientation = choices[choice];
+                }
+                // From here, we can guarantee that the orientation is either clockwise or anticlockwise.
+                // This also implies that there is a second last hitcircle.
+                HitObject secondLast = ptr.Previous.Value;
+                Vector2 restrictionLine = last.position - secondLast.position;
+                double restrictionAngle = new PolarVector2(restrictionLine).Angle;
+                double bufferAngle = (5.0*Math.PI/6.0)*r.NextDouble();
+                double newAngle;
+                if (orientation == Orientation.Clockwise) newAngle = restrictionAngle + bufferAngle;
+                else newAngle = restrictionAngle - bufferAngle;
+                PolarVector2 polarChangeVector = new PolarVector2(dist, newAngle);
+                Vector2 changeVector = polarChangeVector.ToVector2(aspectRatio);
+                return last.position + changeVector;
+            }
+            // Case 2: potential distance vector + previous circle position has only one side over.
+            else if (closeSides.Count == 1)
+            {
+                return new Vector2(0);
+            }
+            // Case 3: potential distance vector + previous circle position is two sides over.
+            else if (closeSides.Count == 2)
+            {
+                return new Vector2(0);
+            }
+            // Otherwise, the playfield is too small.
+            else throw new Exception("Playfield is too small!");
+        }
+
         /// <summary>
         /// This is the NextPosition function that we want to use.
         /// </summary>
@@ -170,6 +278,7 @@ namespace MidiVersion
             Random r = new Random();
             if (previousHitObjects.Count == 0)
             {
+                // Choose a random position on the playfield.
                 return new Vector2((float)(r.NextDouble() * 2 - 1), (float)(r.NextDouble() * 2 - 1));
             }
 
@@ -181,25 +290,28 @@ namespace MidiVersion
             // If the closestTempoDivisor is too high, we return NULL_VECTOR, essentially skipping the note.
             if (overallDifficulty < 0.25 && closestTempoDivisor > 1) return NULL_VECTOR;
             if (overallDifficulty < 0.4 && closestTempoDivisor > 2) return NULL_VECTOR;
-            if (overallDifficulty >= 0.4) return NULL_VECTOR; // TEMPORARY FOR NOW. WANT TO CONSIDER LOWER DIFFS.
+            //if (overallDifficulty >= 0.4) return NULL_VECTOR; // TEMPORARY FOR NOW. WANT TO CONSIDER LOWER DIFFS.
 
             double playfieldNoteSpacing;
 
             // For overall difficulty less than 0.4, we want distance between notes on the timeline to be
-            // proportionate to distance between notes on the playfield.
+            // proportional to distance between notes on the playfield.
             // The overall difficulty does not influence this difference
             // but the BPM and timeline distance does. Fast BPM && close distance on timeline ==> closer spacing.
-            if (overallDifficulty < 0.4)
-            {
-                playfieldNoteSpacing = BPMToSPB(previousNote.tempo) / (2 * closestTempoDivisor);
-            } else
-            {
+            // higher overall difficulty ==> more complex rhythm choices.
+            //if (overallDifficulty < 0.4)
+            //{
+            playfieldNoteSpacing = BPMToSPB(previousNote.tempo) / (2 * closestTempoDivisor) + 0.3*overallDifficulty;
+            //} else
+            //{
 
-            }
+            //}
 
-            if (previousHitObjects.Count == 1)
+            /*if (previousHitObjects.Count == 1)
             {
                 // Choose range of values for the output vector such that note is still on screen 
+                Vector2 nextPosition = GetNextPositionWithinPlayField(playfieldNoteSpacing);
+                return nextPosition;
 
             } else if (previousHitObjects.Count == 2)
             {
@@ -210,7 +322,9 @@ namespace MidiVersion
                 // Same as above condition, but now the new circle must maintain the orientation defined by the last three circles
                 // (as defined by the shoelace formula - the GetOrientation function) unless the circle to place is forced to be off-screen.
             }
-            return new Vector2(0);
+            return new Vector2(0);*/
+            return GetNextPositionWithinPlayField(playfieldNoteSpacing);
+
         }   
 
         public double SigmoidDiffChange(double x)
@@ -225,7 +339,7 @@ namespace MidiVersion
 
         public Orientation GetOrientation(HitObject h1, HitObject h2, HitObject h3)
         {
-            // We use the shoelace formula.
+            // We use the shoelace formula, order is h1, h2, h3
             Vector2 h1Pos = h1.position;
             Vector2 h2Pos = h2.position;
             Vector2 h3Pos = h3.position;
@@ -255,7 +369,7 @@ namespace MidiVersion
         public void AddHitObject(HitObject h)
         {
             previousHitObjects.AddLast(new LinkedListNode<HitObject>(h));
-            if (previousHitObjects.Count > 3)
+            if (previousHitObjects.Count > 15)
             {
                 previousHitObjects.RemoveFirst();
             }
@@ -277,7 +391,6 @@ namespace MidiVersion
                 Circle c = new Circle(game, note) { start = note.startTime };
                 //c.SetPolarPosition(GetNextPosition(note), aspectRatio);
                 Vector2 nextPosition = GetNextPosition(note);
-                if (nextPosition == NULL_VECTOR) continue; // Skip this note.
                 c.position = nextPosition;
                 AddHitObject(c);
                 yield return c;

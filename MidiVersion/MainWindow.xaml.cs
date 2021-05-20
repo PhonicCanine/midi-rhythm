@@ -115,8 +115,12 @@ namespace MidiVersion
             lastUpdate = DateTime.Now;
             while (HitObjectEnumerator.Current.Render(Playfield,time))
             {
-                displaying.Add(HitObjectEnumerator.Current);
-                HitObjectEnumerator.Current.order = currentObjIdx++;
+                if (HitObjectEnumerator.Current.position != Generator.NULL_VECTOR)
+                {
+                    displaying.Add(HitObjectEnumerator.Current);
+                    HitObjectEnumerator.Current.order = currentObjIdx++;
+                }
+                    
                 HitObjectEnumerator.MoveNext();
             }
             foreach (var obj in displaying) obj.Render(Playfield, time);

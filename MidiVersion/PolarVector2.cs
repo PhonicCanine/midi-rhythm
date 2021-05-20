@@ -16,7 +16,7 @@ namespace MidiVersion
             get { return angle; }
             set
             {
-                // Need to ensure that angle > 0 when setting.
+                // Need to ensure that angle is between 0 and 2pi.
                 if (value < 0)
                 {
                     int mul = (int)Math.Abs(value / (2.0 * Math.PI)) + 1;
@@ -34,7 +34,13 @@ namespace MidiVersion
         public PolarVector2(double m, double a)
         {
             magnitude = m;
-            angle = a;
+            Angle = a;
+        }
+
+        public PolarVector2(Vector2 v)
+        {
+            magnitude = Math.Sqrt(Math.Pow(v.X, 2) + Math.Pow(v.Y, 2));
+            Angle = Math.Atan2(v.Y, v.X);
         }
 
         public Vector2 ToVector2()
@@ -50,5 +56,6 @@ namespace MidiVersion
             v.X /= (float)xAspectRatio;
             return v;
         }
+
     }
 }
