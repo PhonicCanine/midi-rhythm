@@ -68,14 +68,14 @@ namespace MidiVersion
         {
             return 60.0 / (currentTempo * divisor);
         }
-        public int GetClosestTempoDivisorFromNoteSpacing(Note n1, Note n2)
+        public double GetClosestTempoDivisorFromNoteSpacing(Note n1, Note n2)
         {
             // Assume n2 comes later than n1.
             TimeSpan n1Start = n1.startTime;
             TimeSpan n2Start = n2.startTime;
             TimeSpan diff = n2Start - n1Start;
             double diffSeconds = diff.TotalSeconds;
-            int ret = (int)Math.Round(60.0 / (currentTempo * diffSeconds));
+            double ret = 60.0 / (currentTempo * diffSeconds);
             return ret;
         }
 
@@ -288,11 +288,14 @@ namespace MidiVersion
             // Consider overall difficulty.
             HitObject previousObject = previousHitObjects.Last.Value;
             Note previousNote = previousObject.associatedNote;
-            int closestTempoDivisor = GetClosestTempoDivisorFromNoteSpacing(previousNote, noteToPlace);
-            
+            double closestTempoDivisor = GetClosestTempoDivisorFromNoteSpacing(previousNote, noteToPlace);
+
             // If the closestTempoDivisor is too high, we return NULL_VECTOR, essentially skipping the note.
-            if (overallDifficulty < 0.25 && closestTempoDivisor > 1) return NULL_VECTOR;
-            if (overallDifficulty < 0.4 && closestTempoDivisor > 2) return NULL_VECTOR;
+            //if (overallDifficulty < 0.25 && closestTempoDivisor > 1) return NULL_VECTOR;
+            //if (overallDifficulty < 0.4 && closestTempoDivisor > 2) return NULL_VECTOR;
+
+            if ((noteToPlace.startTime - previousNote.startTime).TotalSeconds < (1.0 - overallDifficulty) / 1.5) return NULL_VECTOR;
+
             //if (overallDifficulty >= 0.4) return NULL_VECTOR; // TEMPORARY FOR NOW. WANT TO CONSIDER LOWER DIFFS.
 
             double playfieldNoteSpacing;
@@ -392,7 +395,7 @@ namespace MidiVersion
 
         public void SetDifficulty(double difficulty)
         {
-            difficultyRadius = difficulty;
+            difficultyRadius = 0.7;//0.3 + 0.6 * difficulty;
             overallDifficulty = difficulty;
         }
         

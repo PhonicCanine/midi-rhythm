@@ -14,11 +14,11 @@ namespace MidiVersion
         {
             PlayerHealth += hr switch
             {
-                HitResult.Miss => -0.1,
-                HitResult.Meh => -0.03,
+                HitResult.Miss => -0.03,
+                HitResult.Meh => -0.01,
                 HitResult.OK => 0,
-                HitResult.Great => 0.03,
-                HitResult.Perfect => 0.1,
+                HitResult.Great => 0.01,
+                HitResult.Perfect => 0.03,
                 _ => 0
             };
             PlayerHealth = Math.Max(0, Math.Min(PlayerHealth, 1));
