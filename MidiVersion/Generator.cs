@@ -75,7 +75,7 @@ namespace MidiVersion
             if (o == Orientation.Indeterminate || o == Orientation.Linear) return o;
             return (Orientation)(-(int)o);
         }
-        public int GetClosestTempoDivisorFromNoteSpacing(Note n1, Note n2)
+        public double GetClosestTempoDivisorFromNoteSpacing(Note n1, Note n2)
         {
             // Assume n2 comes later than n1.
             TimeSpan n1Start = n1.startTime;
@@ -83,7 +83,7 @@ namespace MidiVersion
             TimeSpan diff = n2Start - n1Start;
             double diffSeconds = diff.TotalSeconds;
             double ret = 60.0 / (currentTempo * diffSeconds);
-            return (int)ret;
+            return ret;
         }
 
         public Track MergeTracks(List<Track> tracks)
@@ -521,7 +521,7 @@ namespace MidiVersion
             // higher overall difficulty ==> more complex rhythm choices.
             //if (overallDifficulty < 0.4)
             //{
-            playfieldNoteSpacing = BPMToSPB(previousNote.tempo) / (2 * closestTempoDivisor) + 0.3*overallDifficulty;
+            playfieldNoteSpacing = BPMToSPB(previousNote.tempo) * closestTempoDivisor / 4 + 0.4*overallDifficulty;
             //} else
             //{
 
