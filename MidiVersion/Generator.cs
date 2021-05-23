@@ -12,11 +12,12 @@ namespace MidiVersion
     {
         public enum Orientation
         {
-            Clockwise,
+            Clockwise = -1,
             Linear,
             Anticlockwise,
             Indeterminate
         }
+
         public readonly static Vector2 NULL_VECTOR = new Vector2(-2);
         const double MAX_OVERALL_DIFFICULTY = 0.4;
         const double MIN_OVERALL_DIFFICULTY = 0;
@@ -67,6 +68,12 @@ namespace MidiVersion
         public double GetCycleSpacingDivision(double divisor)
         {
             return 60.0 / (currentTempo * divisor);
+        }
+
+        public Orientation ReverseOrientation(Orientation o)
+        {
+            if (o == Orientation.Indeterminate || o == Orientation.Linear) return o;
+            return (Orientation)(-(int)o);
         }
         public int GetClosestTempoDivisorFromNoteSpacing(Note n1, Note n2)
         {
@@ -169,18 +176,18 @@ namespace MidiVersion
             return false;
         }
 
-        public enum PlayfieldSides { Top, Right, Bottom, Left }
-        public List<PlayfieldSides> GetCloseEdges(double dist, Vector2 previous)
+        public enum PlayfieldSide { Top, Right, Bottom, Left }
+        public List<PlayfieldSide> GetCloseEdges(double dist, Vector2 previous)
         {
             Vector2 change1 = CreateDistanceVector(dist, 0);
             Vector2 change2 = CreateDistanceVector(dist, Math.PI/2.0);
             Vector2 change3 = CreateDistanceVector(dist, Math.PI);
             Vector2 change4 = CreateDistanceVector(dist, 3.0 * Math.PI / 2.0);
-            List<PlayfieldSides> closeSides = new List<PlayfieldSides>();
-            if (!IsPositionWithinPlayfield(previous + change1)) closeSides.Add(PlayfieldSides.Right);
-            if (!IsPositionWithinPlayfield(previous + change2)) closeSides.Add(PlayfieldSides.Top);
-            if (!IsPositionWithinPlayfield(previous + change3)) closeSides.Add(PlayfieldSides.Left);
-            if (!IsPositionWithinPlayfield(previous + change4)) closeSides.Add(PlayfieldSides.Bottom);
+            List<PlayfieldSide> closeSides = new List<PlayfieldSide>();
+            if (!IsPositionWithinPlayfield(previous + change1)) closeSides.Add(PlayfieldSide.Right);
+            if (!IsPositionWithinPlayfield(previous + change2)) closeSides.Add(PlayfieldSide.Top);
+            if (!IsPositionWithinPlayfield(previous + change3)) closeSides.Add(PlayfieldSide.Left);
+            if (!IsPositionWithinPlayfield(previous + change4)) closeSides.Add(PlayfieldSide.Bottom);
 
             return closeSides;
         }
@@ -188,7 +195,10 @@ namespace MidiVersion
         public Orientation GetCurrentOrientation()
         {
             if (previousHitObjects.Count < 2) return Orientation.Indeterminate; // Inconclusive.
-            if (previousHitObjects.Count == 2) return Orientation.Linear;
+            if (previousHitObjects.Count == 2)
+            {
+                return Orientation.Linear;
+            }
             // Get previous three hitcircles.
             LinkedListNode<HitObject> ptr = previousHitObjects.Last;
             HitObject h1 = ptr.Value;
@@ -222,7 +232,7 @@ namespace MidiVersion
 
             LinkedListNode<HitObject> ptr = previousHitObjects.Last;
             HitObject last = ptr.Value;
-            List<PlayfieldSides> closeSides = GetCloseEdges(dist, last.position);
+            List<PlayfieldSide> closeSides = GetCloseEdges(dist, last.position);
             // Three cases to consider:
 
             // Case 1: potential distance vector + previous circle position has x and y values less than 1 for sure.
@@ -243,16 +253,22 @@ namespace MidiVersion
                     int choice = r.Next(choices.Length);
                     orientation = choices[choice];
                 }
+                else
+                {
+                    // Randomise change in orientation.
+                    double reverseChance = r.NextDouble();
+                    orientation = (reverseChance > 0.7) ? ReverseOrientation(orientation) : orientation;
+                }
                 // From here, we can guarantee that the orientation is either clockwise or anticlockwise.
                 // This also implies that there is a second last hitcircle.
                 HitObject secondLast = ptr.Previous.Value;
                 Vector2 restrictionLine = last.position - secondLast.position;
                 double restrictionAngle = new PolarVector2(restrictionLine).Angle;
-                double bufferAngle = (5.0*Math.PI/6.0)*r.NextDouble();
+                double bufferAngle = (2.0 * Math.PI / 3.0) * r.NextDouble();
                 double newAngle;
 
-                if (orientation == Orientation.Clockwise) newAngle = restrictionAngle + bufferAngle;
-                else newAngle = restrictionAngle - bufferAngle;
+                if (orientation == Orientation.Clockwise) newAngle = restrictionAngle - bufferAngle;
+                else newAngle = restrictionAngle + bufferAngle;
 
                 PolarVector2 polarChangeVector = new PolarVector2(dist, newAngle);
                 Vector2 changeVector = polarChangeVector.ToVector2(aspectRatio);
@@ -261,6 +277,180 @@ namespace MidiVersion
             // Case 2: potential distance vector + previous circle position has only one side over.
             else if (closeSides.Count == 1)
             {
+                PlayfieldSide side1 = closeSides[0];
+                if (side1 == PlayfieldSide.Top)
+                {
+                    // Get distance between side and last.position
+                    double distanceFromSide = Math.Abs(1 - last.position.Y);
+                    Orientation orientation = GetCurrentOrientation();
+                    double bufferAngle = Math.Acos(distanceFromSide / dist);
+                    double newAngle;
+                    if (orientation == Orientation.Indeterminate)
+                    {
+                        double lower = Math.PI / 2.0 + bufferAngle - 2.0 * Math.PI;
+                        double upper = Math.PI / 2.0 - bufferAngle;
+                        newAngle = RandDoubleRange(lower, upper);
+                        PolarVector2 polarDistanceVector = new PolarVector2(dist, newAngle);
+                        Vector2 distanceVector = polarDistanceVector.ToVector2(aspectRatio);
+                        return last.position + distanceVector;
+                    }
+                    else if (orientation == Orientation.Linear)
+                    {
+                        // Choose orientation randomly.
+                        Orientation[] orientations = new Orientation[] { Orientation.Anticlockwise, Orientation.Clockwise };
+                        int choice = r.Next(0, 2);
+                        orientation = orientations[choice];
+                    }
+
+                    HitObject secondLast = ptr.Previous.Value;
+                    Vector2 restrictionLine = last.position - secondLast.position;
+                    PolarVector2 polarRestrictionLine = new PolarVector2(restrictionLine);
+                    if (orientation == Orientation.Anticlockwise)
+                    {
+                        double lower = Math.Max(polarRestrictionLine.Angle, Math.PI / 2.0 + bufferAngle);
+                        double upper = polarRestrictionLine.Angle + 2.0 * Math.PI / 3.0;
+                        newAngle = RandDoubleRange(lower, upper);
+                    }
+                    else
+                    {
+                        double normalised = polarRestrictionLine.Angle > Math.PI ? polarRestrictionLine.Angle - Math.PI * 2.0 : polarRestrictionLine.Angle;
+                        double lower = normalised - 2.0 * Math.PI / 3.0;
+                        double upper = Math.Min(normalised, Math.PI / 2.0 - bufferAngle);
+                        newAngle = RandDoubleRange(lower, upper);
+                    }
+                    PolarVector2 polarChangeVector = new PolarVector2(dist, newAngle);
+                    Vector2 changeVector = polarChangeVector.ToVector2(aspectRatio);
+                    return last.position + changeVector;
+                }
+                if (side1 == PlayfieldSide.Left)
+                {
+                    double distanceFromSide = Math.Abs(-1 - last.position.X);
+                    Orientation orientation = GetCurrentOrientation();
+                    double bufferAngle = Math.Acos(distanceFromSide / dist);
+                    double newAngle;
+                    if (orientation == Orientation.Indeterminate)
+                    {
+                        double lower = Math.PI + bufferAngle - 2.0 * Math.PI;
+                        double upper = Math.PI - bufferAngle;
+                        newAngle = RandDoubleRange(lower, upper);
+                        PolarVector2 polarDistanceVector = new PolarVector2(dist, newAngle);
+                        Vector2 distanceVector = polarDistanceVector.ToVector2(aspectRatio);
+                        return last.position + distanceVector;
+                    }
+                    else if (orientation == Orientation.Linear)
+                    {
+                        // Choose orientation randomly.
+                        Orientation[] orientations = new Orientation[] { Orientation.Anticlockwise, Orientation.Clockwise };
+                        int choice = r.Next(0, 2);
+                        orientation = orientations[choice];
+                    }
+
+                    HitObject secondLast = ptr.Previous.Value;
+                    Vector2 restrictionLine = last.position - secondLast.position;
+                    PolarVector2 polarRestrictionLine = new PolarVector2(restrictionLine);
+                    if (orientation == Orientation.Anticlockwise)
+                    {
+                        double lower = Math.Max(polarRestrictionLine.Angle, Math.PI + bufferAngle);
+                        double upper = polarRestrictionLine.Angle + 2.0 * Math.PI / 3.0;
+                        newAngle = RandDoubleRange(lower, upper);
+                    }
+                    else
+                    {
+                        //double normalised = polarRestrictionLine.Angle > Math.PI ? polarRestrictionLine.Angle - Math.PI * 2.0 : polarRestrictionLine.Angle;
+                        double lower = polarRestrictionLine.Angle - 2.0 * Math.PI / 3.0;
+                        double upper = Math.Min(Math.PI - bufferAngle, polarRestrictionLine.Angle);
+                        newAngle = RandDoubleRange(lower, upper);
+                    }
+                    PolarVector2 polarChangeVector = new PolarVector2(dist, newAngle);
+                    Vector2 changeVector = polarChangeVector.ToVector2(aspectRatio);
+                    return last.position + changeVector;
+                }
+                if (side1 == PlayfieldSide.Bottom)
+                {
+                    double distanceFromSide = Math.Abs(-1 - last.position.Y);
+                    Orientation orientation = GetCurrentOrientation();
+                    double bufferAngle = Math.Acos(distanceFromSide / dist);
+                    double newAngle;
+                    if (orientation == Orientation.Indeterminate)
+                    {
+                        double lower = 3.0*Math.PI/2.0 + bufferAngle - 2.0 * Math.PI;
+                        double upper = 3.0*Math.PI/2.0 - bufferAngle;
+                        newAngle = RandDoubleRange(lower, upper);
+                        PolarVector2 polarDistanceVector = new PolarVector2(dist, newAngle);
+                        Vector2 distanceVector = polarDistanceVector.ToVector2(aspectRatio);
+                        return last.position + distanceVector;
+                    }
+                    else if (orientation == Orientation.Linear)
+                    {
+                        // Choose orientation randomly.
+                        Orientation[] orientations = new Orientation[] { Orientation.Anticlockwise, Orientation.Clockwise };
+                        int choice = r.Next(0, 2);
+                        orientation = orientations[choice];
+                    }
+
+                    HitObject secondLast = ptr.Previous.Value;
+                    Vector2 restrictionLine = last.position - secondLast.position;
+                    PolarVector2 polarRestrictionLine = new PolarVector2(restrictionLine);
+                    if (orientation == Orientation.Anticlockwise)
+                    {
+                        double lower = Math.Max(polarRestrictionLine.Angle, 3.0*Math.PI/2.0 + bufferAngle);
+                        double upper = polarRestrictionLine.Angle + 2.0 * Math.PI / 3.0;
+                        newAngle = RandDoubleRange(lower, upper);
+                    }
+                    else
+                    {
+                        //double normalised = polarRestrictionLine.Angle > Math.PI ? polarRestrictionLine.Angle - Math.PI * 2.0 : polarRestrictionLine.Angle;
+                        double lower = polarRestrictionLine.Angle - 2.0 * Math.PI / 3.0;
+                        double upper = Math.Min(3.0*Math.PI/2.0 - bufferAngle, polarRestrictionLine.Angle);
+                        newAngle = RandDoubleRange(lower, upper);
+                    }
+                    PolarVector2 polarChangeVector = new PolarVector2(dist, newAngle);
+                    Vector2 changeVector = polarChangeVector.ToVector2(aspectRatio);
+                    return last.position + changeVector;
+                }
+                if (side1 == PlayfieldSide.Right)
+                {
+                    double distanceFromSide = Math.Abs(1 - last.position.X);
+                    Orientation orientation = GetCurrentOrientation();
+                    double bufferAngle = Math.Acos(distanceFromSide / dist);
+                    double newAngle;
+                    if (orientation == Orientation.Indeterminate)
+                    {
+                        double lower = bufferAngle;
+                        double upper = 2.0*Math.PI - bufferAngle;
+                        newAngle = RandDoubleRange(lower, upper);
+                        PolarVector2 polarDistanceVector = new PolarVector2(dist, newAngle);
+                        Vector2 distanceVector = polarDistanceVector.ToVector2(aspectRatio);
+                        return last.position + distanceVector;
+                    }
+                    else if (orientation == Orientation.Linear)
+                    {
+                        // Choose orientation randomly.
+                        Orientation[] orientations = new Orientation[] { Orientation.Anticlockwise, Orientation.Clockwise };
+                        int choice = r.Next(0, 2);
+                        orientation = orientations[choice];
+                    }
+
+                    HitObject secondLast = ptr.Previous.Value;
+                    Vector2 restrictionLine = last.position - secondLast.position;
+                    PolarVector2 polarRestrictionLine = new PolarVector2(restrictionLine);
+                    if (orientation == Orientation.Anticlockwise)
+                    {
+                        double lower = Math.Max(polarRestrictionLine.Angle, bufferAngle);
+                        double upper = polarRestrictionLine.Angle + 2.0 * Math.PI / 3.0;
+                        newAngle = RandDoubleRange(lower, upper);
+                    }
+                    else
+                    {
+                        //double normalised = polarRestrictionLine.Angle > Math.PI ? polarRestrictionLine.Angle - Math.PI * 2.0 : polarRestrictionLine.Angle;
+                        double lower = polarRestrictionLine.Angle - 2.0 * Math.PI / 3.0;
+                        double upper = Math.Min(2.0 * Math.PI - bufferAngle, polarRestrictionLine.Angle);
+                        newAngle = RandDoubleRange(lower, upper);
+                    }
+                    PolarVector2 polarChangeVector = new PolarVector2(dist, newAngle);
+                    Vector2 changeVector = polarChangeVector.ToVector2(aspectRatio);
+                    return last.position + changeVector;
+                }
                 return new Vector2(0);
             }
             // Case 3: potential distance vector + previous circle position is two sides over.
@@ -269,7 +459,31 @@ namespace MidiVersion
                 return new Vector2(0);
             }
             // Otherwise, the playfield is too small.
-            else throw new Exception("Playfield is too small!");
+            else
+            {
+                return new Vector2(0);
+            }
+        }
+
+        public double NormailseAngle(double value)
+        {
+            if (value < 0)
+            {
+                int mul = (int)Math.Abs(value / (2.0 * Math.PI)) + 1;
+                return value + 2.0 * Math.PI * mul;
+            }
+            else if (value >= 2.0 * Math.PI)
+            {
+                int mul = (int)(value / (2.0 * Math.PI));
+                return value - 2.0 * Math.PI * mul;
+            }
+            else return value;
+        }
+
+        public double RandDoubleRange(double minimum, double maximum)
+        {
+            Random r = new Random();
+            return r.NextDouble() * (maximum - minimum) + minimum;
         }
 
         /// <summary>
@@ -311,22 +525,6 @@ namespace MidiVersion
 
             //}
 
-            /*if (previousHitObjects.Count == 1)
-            {
-                // Choose range of values for the output vector such that note is still on screen 
-                Vector2 nextPosition = GetNextPositionWithinPlayField(playfieldNoteSpacing);
-                return nextPosition;
-
-            } else if (previousHitObjects.Count == 2)
-            {
-                // Same as above condition, but now the vector to output must not overlap with the 2nd last
-                // hitcircle.
-            } else
-            {
-                // Same as above condition, but now the new circle must maintain the orientation defined by the last three circles
-                // (as defined by the shoelace formula - the GetOrientation function) unless the circle to place is forced to be off-screen.
-            }
-            return new Vector2(0);*/
             return GetNextPositionWithinPlayField(playfieldNoteSpacing);
 
         }   

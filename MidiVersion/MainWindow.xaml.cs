@@ -230,12 +230,13 @@ namespace MidiVersion
             
             _playback.Speed = 1;
             gameplayTimer = new Timer((t) =>
-            {
-                Application.Current.Dispatcher.Invoke(() =>
                 {
-                    PerformGameUpdate(GetTime());
-                });
-            }, null, timerTick, timerTick);
+                    Application.Current.Dispatcher.Invoke(() =>
+                    {
+                        PerformGameUpdate(GetTime());
+                    });
+                }, null, timerTick, timerTick);
+
             gameTimer.Restart();
             _playback.Start();
             PlaybackCurrentTimeWatcher.Instance.Start();
