@@ -83,7 +83,7 @@ namespace MidiVersion
             TimeSpan diff = n2Start - n1Start;
             double diffSeconds = diff.TotalSeconds;
             double ret = 60.0 / (currentTempo * diffSeconds);
-            return ret;
+            return (int)ret;
         }
 
         public Track MergeTracks(List<Track> tracks)
