@@ -75,8 +75,8 @@ namespace MidiVersion
             TimeSpan n2Start = n2.startTime;
             TimeSpan diff = n2Start - n1Start;
             double diffSeconds = diff.TotalSeconds;
-
-            return (int)Math.Round(60.0 / (currentTempo * diffSeconds));
+            int ret = (int)Math.Round(60.0 / (currentTempo * diffSeconds));
+            return ret;
         }
 
         public Track MergeTracks(List<Track> tracks)
@@ -99,7 +99,7 @@ namespace MidiVersion
             playfieldLength = playfield.ActualWidth;
             playfieldHeight = playfield.ActualHeight;
             DifficultyRadius = 0.7;
-            overallDifficulty = 0.5;
+            overallDifficulty = 0.2;
             aspectRatio = playfieldLength / playfieldHeight;
             previousHitObjects = new LinkedList<HitObject>();
             this.game = game;
@@ -180,7 +180,7 @@ namespace MidiVersion
             if (!IsPositionWithinPlayfield(previous + change1)) closeSides.Add(PlayfieldSides.Right);
             if (!IsPositionWithinPlayfield(previous + change2)) closeSides.Add(PlayfieldSides.Top);
             if (!IsPositionWithinPlayfield(previous + change3)) closeSides.Add(PlayfieldSides.Left);
-            if (!IsPositionWithinPlayfield(previous + change1)) closeSides.Add(PlayfieldSides.Bottom);
+            if (!IsPositionWithinPlayfield(previous + change4)) closeSides.Add(PlayfieldSides.Bottom);
 
             return closeSides;
         }
@@ -218,6 +218,8 @@ namespace MidiVersion
         public Vector2 GetNextPositionWithinPlayField(double dist)
         {
             Random r = new Random();
+            if (double.IsInfinity(dist)) return new Vector2((float)(r.NextDouble() * 2.0 - 1), (float)(r.NextDouble() * 2.0 - 1));
+
             LinkedListNode<HitObject> ptr = previousHitObjects.Last;
             HitObject last = ptr.Value;
             List<PlayfieldSides> closeSides = GetCloseEdges(dist, last.position);
@@ -248,8 +250,10 @@ namespace MidiVersion
                 double restrictionAngle = new PolarVector2(restrictionLine).Angle;
                 double bufferAngle = (5.0*Math.PI/6.0)*r.NextDouble();
                 double newAngle;
+
                 if (orientation == Orientation.Clockwise) newAngle = restrictionAngle + bufferAngle;
                 else newAngle = restrictionAngle - bufferAngle;
+
                 PolarVector2 polarChangeVector = new PolarVector2(dist, newAngle);
                 Vector2 changeVector = polarChangeVector.ToVector2(aspectRatio);
                 return last.position + changeVector;
@@ -389,10 +393,10 @@ namespace MidiVersion
             {
                 currentTempo = note.tempo;
                 Circle c = new Circle(game, note) { start = note.startTime };
-                //c.SetPolarPosition(GetNextPosition(note), aspectRatio);
                 Vector2 nextPosition = GetNextPosition(note);
+                
                 c.position = nextPosition;
-                AddHitObject(c);
+                if (nextPosition != NULL_VECTOR) AddHitObject(c);
                 yield return c;
             }
         }
