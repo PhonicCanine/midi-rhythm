@@ -8,7 +8,7 @@ using System.Windows.Controls;
 
 namespace MidiVersion
 {
-    public class Generator
+    public class Generator: IGenerator
     {
         public enum Orientation
         {
@@ -82,7 +82,7 @@ namespace MidiVersion
             TimeSpan n2Start = n2.startTime;
             TimeSpan diff = n2Start - n1Start;
             double diffSeconds = diff.TotalSeconds;
-            int ret = (int)Math.Round(60.0 / (currentTempo * diffSeconds));
+            double ret = 60.0 / (currentTempo * diffSeconds);
             return ret;
         }
 
@@ -99,14 +99,13 @@ namespace MidiVersion
             return newTrack;
         }
 
-        
-        public Generator(Grid playfield, MainWindow game)
+        public void Initialize(Grid playfield, MainWindow game)
         {
             this.playfield = playfield;
             playfieldLength = playfield.ActualWidth;
             playfieldHeight = playfield.ActualHeight;
             DifficultyRadius = 0.7;
-            overallDifficulty = 0.2;
+            overallDifficulty = 0.0;
             aspectRatio = playfieldLength / playfieldHeight;
             previousHitObjects = new LinkedList<HitObject>();
             this.game = game;
@@ -503,11 +502,14 @@ namespace MidiVersion
             // Consider overall difficulty.
             HitObject previousObject = previousHitObjects.Last.Value;
             Note previousNote = previousObject.associatedNote;
-            int closestTempoDivisor = GetClosestTempoDivisorFromNoteSpacing(previousNote, noteToPlace);
-            
+            double closestTempoDivisor = GetClosestTempoDivisorFromNoteSpacing(previousNote, noteToPlace);
+
             // If the closestTempoDivisor is too high, we return NULL_VECTOR, essentially skipping the note.
-            if (overallDifficulty < 0.25 && closestTempoDivisor > 1) return NULL_VECTOR;
-            if (overallDifficulty < 0.4 && closestTempoDivisor > 2) return NULL_VECTOR;
+            //if (overallDifficulty < 0.25 && closestTempoDivisor > 1) return NULL_VECTOR;
+            //if (overallDifficulty < 0.4 && closestTempoDivisor > 2) return NULL_VECTOR;
+
+            if ((noteToPlace.startTime - previousNote.startTime).TotalSeconds < (1.0 - overallDifficulty) / 1.5) return NULL_VECTOR;
+
             //if (overallDifficulty >= 0.4) return NULL_VECTOR; // TEMPORARY FOR NOW. WANT TO CONSIDER LOWER DIFFS.
 
             double playfieldNoteSpacing;
@@ -528,16 +530,6 @@ namespace MidiVersion
             return GetNextPositionWithinPlayField(playfieldNoteSpacing);
 
         }   
-
-        public double SigmoidDiffChange(double x)
-        {
-            return (1.0 / 30.0) * (12.0 * Math.Exp(-12.0 * (x - 0.5))) / Math.Pow(1.0 + Math.Exp(-12.0 * (x - 0.5)), 2);
-        }
-        public void ProcessHitResult(HitResult hr)
-        {
-            if (hr == HitResult.Great) DifficultyRadius += SigmoidDiffChange(DifficultyRadius);
-            else if (hr == HitResult.Miss) DifficultyRadius -= SigmoidDiffChange(DifficultyRadius);
-        }
 
         public Orientation GetOrientation(HitObject h1, HitObject h2, HitObject h3)
         {
@@ -598,5 +590,12 @@ namespace MidiVersion
                 yield return c;
             }
         }
+
+        public void SetDifficulty(double difficulty)
+        {
+            difficultyRadius = 0.7;//0.3 + 0.6 * difficulty;
+            overallDifficulty = difficulty;
+        }
+        
     }
 }
