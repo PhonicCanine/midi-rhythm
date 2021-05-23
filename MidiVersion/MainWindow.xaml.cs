@@ -79,12 +79,14 @@ namespace MidiVersion
         TimeSpan currentTime = TimeSpan.Zero;
         TimeSpan gameplayTime = TimeSpan.Zero;
         DateTime lastUpdate = DateTime.Now;
-
+        public IGenerator generatorInstance;
+        public IDifficultyManager difficultyManager;
         public MainWindow()
         {
             InitializeComponent();
             Circle.buttonStyle = this.FindResource("GlassButton") as Style;
-
+            generatorInstance = new Generator();
+            difficultyManager = new DefaultDifficultyManager();
         }
         string Filepath;
         private void OpenFile(object sender, RoutedEventArgs e)
@@ -107,13 +109,14 @@ namespace MidiVersion
         IEnumerable<HitObject> hitObjects; // All elements in chronologial order. Temporary
 
         
-        public Generator generatorInstance;
+        
         private List<HitObject> displaying = new List<HitObject>();
         IEnumerator<HitObject> HitObjectEnumerator;
         private void PerformGameUpdate(TimeSpan time)
         {
             lastUpdate = DateTime.Now;
-            while (HitObjectEnumerator.Current.Render(Playfield,time))
+            int concurrent = 0;
+            while (HitObjectEnumerator.Current.Render(Playfield,time) && _playback != null && ++concurrent < 5)
             {
                 if (HitObjectEnumerator.Current.position != Generator.NULL_VECTOR)
                 {
@@ -217,7 +220,10 @@ namespace MidiVersion
             landmarks = FindLandmarks(midiFile);
             scoring = new Scoring();
             Random r = new Random();
-            generatorInstance = new Generator(Playfield, this);
+            
+            generatorInstance.Initialize(Playfield, this);
+            difficultyManager.generator = generatorInstance;
+
             hitObjects = generatorInstance.GetHitObjects();
             HitObjectEnumerator = hitObjects.GetEnumerator();
             HitObjectEnumerator.MoveNext();
@@ -248,6 +254,11 @@ namespace MidiVersion
         {
             _outputDevice.Dispose();
             _playback.Dispose();
+            gameTimer.Stop();
+            gameplayTimer.Dispose();
+            _outputDevice = null;
+            _playback = null;
+            Playfield.Children.Clear();
         }
         
         private void OnCurrentTimeChanged(object sender, PlaybackCurrentTimeChangedEventArgs e)
@@ -269,13 +280,13 @@ namespace MidiVersion
             if (order == currentScoreIdx + 1)
             {
                 if (hr <= HitResult.Meh)
-                    scoring.combo = 0;
+                    scoring.combo = 1;
                 else
                     scoring.combo++;
                 scoring.score += scoring.combo * (int)hr;
-                ScoreTextBlock.Text = $"Score: {scoring.score}, Combo: {scoring.combo}";
+                ScoreTextBlock.Text = $"Score: {scoring.score}, Combo: {scoring.combo - 1}, Difficulty: {difficultyManager.GetDifficulty()}";
                 currentScoreIdx = order;
-                generatorInstance.ProcessHitResult(hr);
+                difficultyManager.AddHit(hr);
                 return true;
             }
             

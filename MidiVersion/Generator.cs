@@ -8,7 +8,7 @@ using System.Windows.Controls;
 
 namespace MidiVersion
 {
-    public class Generator
+    public class Generator: IGenerator
     {
         public enum Orientation
         {
@@ -92,14 +92,13 @@ namespace MidiVersion
             return newTrack;
         }
 
-        
-        public Generator(Grid playfield, MainWindow game)
+        public void Initialize(Grid playfield, MainWindow game)
         {
             this.playfield = playfield;
             playfieldLength = playfield.ActualWidth;
             playfieldHeight = playfield.ActualHeight;
             DifficultyRadius = 0.7;
-            overallDifficulty = 0.2;
+            overallDifficulty = 0.0;
             aspectRatio = playfieldLength / playfieldHeight;
             previousHitObjects = new LinkedList<HitObject>();
             this.game = game;
@@ -331,16 +330,6 @@ namespace MidiVersion
 
         }   
 
-        public double SigmoidDiffChange(double x)
-        {
-            return (1.0 / 30.0) * (12.0 * Math.Exp(-12.0 * (x - 0.5))) / Math.Pow(1.0 + Math.Exp(-12.0 * (x - 0.5)), 2);
-        }
-        public void ProcessHitResult(HitResult hr)
-        {
-            if (hr == HitResult.Great) DifficultyRadius += SigmoidDiffChange(DifficultyRadius);
-            else if (hr == HitResult.Miss) DifficultyRadius -= SigmoidDiffChange(DifficultyRadius);
-        }
-
         public Orientation GetOrientation(HitObject h1, HitObject h2, HitObject h3)
         {
             // We use the shoelace formula, order is h1, h2, h3
@@ -400,5 +389,12 @@ namespace MidiVersion
                 yield return c;
             }
         }
+
+        public void SetDifficulty(double difficulty)
+        {
+            difficultyRadius = difficulty;
+            overallDifficulty = difficulty;
+        }
+        
     }
 }
