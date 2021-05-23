@@ -86,7 +86,7 @@ namespace MidiVersion
             InitializeComponent();
             Circle.buttonStyle = this.FindResource("GlassButton") as Style;
             generatorInstance = new Generator();
-            difficultyManager = new DefaultDifficultyManager();
+            difficultyManager = new SecondAlternateDifficultyManager();//DefaultDifficultyManager();
         }
         string Filepath;
         private void OpenFile(object sender, RoutedEventArgs e)
@@ -258,7 +258,10 @@ namespace MidiVersion
             gameplayTimer.Dispose();
             _outputDevice = null;
             _playback = null;
-            Playfield.Children.Clear();
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                Playfield.Children.Clear();
+            });
         }
         
         private void OnCurrentTimeChanged(object sender, PlaybackCurrentTimeChangedEventArgs e)
