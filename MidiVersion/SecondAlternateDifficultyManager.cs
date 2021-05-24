@@ -29,5 +29,15 @@ namespace MidiVersion
         {
             return PlayerHealth;
         }
+
+        public string GetName()
+        {
+            return "Alternate";
+        }
+
+        public void SetInitialDifficulty(double difficulty)
+        {
+            PlayerHealth = difficulty;
+        }
     }
 }

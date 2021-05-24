@@ -41,5 +41,15 @@ namespace MidiVersion
         {
             return Difficulty;
         }
+
+        public string GetName()
+        {
+            return "PID";
+        }
+
+        public void SetInitialDifficulty(double difficulty)
+        {
+            TotalDelta = difficulty;
+        }
     }
 }

@@ -25,5 +25,15 @@ namespace MidiVersion
         {
             return DifficultyRadius;
         }
+
+        public string GetName()
+        {
+            return "Default";
+        }
+
+        public void SetInitialDifficulty(double difficulty)
+        {
+            DifficultyRadius = difficulty;
+        }
     }
 }

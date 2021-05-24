@@ -20,8 +20,8 @@
             <RowDefinition Height="*"></RowDefinition>
         </Grid.RowDefinitions>
         <Menu Grid.Row="0">
-            <MenuItem Click="OpenFile" Header="Open"/>
-            <MenuItem Click="Start" Header="Start"/>
+            <!--<MenuItem Click="OpenFile" Header="Open"/>
+            <MenuItem Click="Start" Header="Start"/>-->
         </Menu>
         <!--<Grid Grid.Row="1">
             <TextBlock x:Name="ScoreTextBlock"/>
@@ -31,7 +31,31 @@
         </Grid>
         <Grid Grid.Row="2" x:Name="Playfield">
 
-
+        </Grid>
+        <Grid Grid.RowSpan="3">
+            <Grid HorizontalAlignment="Center" VerticalAlignment="Center" Width="200" Height="100" x:Name="SurveyWindow" Visibility="Collapsed">
+                <StackPanel>
+                    <Label Content="Thank you"/>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock>Please copy this:</TextBlock>
+                        <Grid Width="13"></Grid>
+                        <TextBox Width="100" HorizontalAlignment="Right" Name="SurveyText"/>
+                    </StackPanel>
+                    <TextBlock>And fill out this survey</TextBlock>
+                    <Button Content="Survey" Click="BeginSurvey"></Button>
+                    <Button Content="Close" Click="CloseSurveyWindow"/>
+                </StackPanel>
+            </Grid>
+        </Grid>
+        <Grid Grid.RowSpan="3">
+            <Grid HorizontalAlignment="Center" VerticalAlignment="Center" Width="200" Height="100" x:Name="DifficultySelectWindow">
+                <StackPanel>
+                    <Label Content="Select difficulty"/>
+                    <Button Content="Easy" Click="StartEasy"/>
+                    <Button Content="Normal" Click="StartNormal"/>
+                    <Button Content="Hard" Click="StartHard"/>
+                </StackPanel>
+            </Grid>
         </Grid>
     </Grid>
 </Window>

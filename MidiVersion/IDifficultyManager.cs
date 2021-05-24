@@ -9,7 +9,9 @@ namespace MidiVersion
     public interface IDifficultyManager
     {
         public void AddHit(HitResult hr);
+        public void SetInitialDifficulty(double difficulty);
         public IGenerator generator { get; set; }
         public double GetDifficulty();
+        public string GetName();
     }
 }

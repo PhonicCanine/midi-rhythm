@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
+using System.Text;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
@@ -90,6 +91,11 @@ namespace MidiVersion
         }
         string Filepath;
         private void OpenFile(object sender, RoutedEventArgs e)
+        {
+            OpenMidiFile();
+        }
+
+        void OpenMidiFile()
         {
             VistaOpenFileDialog dialog = new VistaOpenFileDialog();
             dialog.DefaultExt = ".mid";
@@ -202,53 +208,7 @@ namespace MidiVersion
         int currentObjIdx;
         private void Start(object sender, RoutedEventArgs e)
         {
-            currentTime = TimeSpan.Zero;
-            gameplayTime = TimeSpan.Zero;
-            MidiFile midiFile;
-            try
-            {
-                midiFile = MidiFile.Read(Filepath);
-            } catch (Exception)
-            {
-                ScoreTextBlock.Text = "Please open a midi file before starting.";
-                return;
-            }
-            this.ScoreTextBlock.Text = "";
-            this.landmarks = FindLandmarks(midiFile);
-            currentObjIdx = 0;
-            currentScoreIdx = -1;
-            landmarks = FindLandmarks(midiFile);
-            scoring = new Scoring();
-            Random r = new Random();
-            
-            generatorInstance.Initialize(Playfield, this);
-            difficultyManager.generator = generatorInstance;
-
-            hitObjects = generatorInstance.GetHitObjects();
-            HitObjectEnumerator = hitObjects.GetEnumerator();
-            HitObjectEnumerator.MoveNext();
-            //hitObjects = landmarks.First().notes.Select(x => getSecondsForEvent(x.start)).Select(x => TimeSpan.FromSeconds(x)).Select(x => new Circle(this) { position = new Vector2((float) r.NextDouble(), (float) r.NextDouble()), start = x }).Select(x => x as HitObject).ToList();
-            _outputDevice = OutputDevice.GetByName("Microsoft GS Wavetable Synth");
-
-            _playback = midiFile.GetPlayback(_outputDevice);
-            PlaybackCurrentTimeWatcher.Instance.AddPlayback(_playback,TimeSpanType.Metric);
-            PlaybackCurrentTimeWatcher.Instance.CurrentTimeChanged += OnCurrentTimeChanged;
-            
-            _playback.Speed = 1;
-            gameplayTimer = new Timer((t) =>
-                {
-                    Application.Current.Dispatcher.Invoke(() =>
-                    {
-                        PerformGameUpdate(GetTime());
-                    });
-                }, null, timerTick, timerTick);
-
-            gameTimer.Restart();
-            _playback.Start();
-            PlaybackCurrentTimeWatcher.Instance.Start();
-
-            _playback.Finished += Finished;
-            
+            StartGame();
         }
 
         private void Finished(object sender, EventArgs e)
@@ -261,6 +221,9 @@ namespace MidiVersion
             _playback = null;
             Application.Current.Dispatcher.Invoke(() =>
             {
+                SurveyWindow.Visibility = Visibility.Visible;
+                string text = $"manager:{difficultyManager.GetName()},difficulty:{difficultyManager.GetDifficulty()},score:{scoring.score}";
+                SurveyText.Text = BitConverter.ToString(Encoding.Default.GetBytes(text)).Replace("-", "");
                 Playfield.Children.Clear();
             });
         }
@@ -302,6 +265,106 @@ namespace MidiVersion
             return gameTimer.Elapsed;
         }
 
+        private void BeginSurvey(object sender, RoutedEventArgs e)
+        {
+            System.Diagnostics.Process.Start("https://forms.office.com/r/vYzzKVVSgL");
+        }
 
+        private void CloseSurveyWindow(object sender, RoutedEventArgs e)
+        {
+            SurveyWindow.Visibility = Visibility.Collapsed;
+            DifficultySelectWindow.Visibility = Visibility.Visible;
+        }
+
+        void StartGame()
+        {
+            currentTime = TimeSpan.Zero;
+            gameplayTime = TimeSpan.Zero;
+            MidiFile midiFile;
+            try
+            {
+                midiFile = MidiFile.Read(Filepath);
+            }
+            catch (Exception)
+            {
+                ScoreTextBlock.Text = "Please open a midi file before starting.";
+                return;
+            }
+            this.ScoreTextBlock.Text = "";
+            this.landmarks = FindLandmarks(midiFile);
+            currentObjIdx = 0;
+            currentScoreIdx = -1;
+            landmarks = FindLandmarks(midiFile);
+            scoring = new Scoring();
+            Random r = new Random();
+
+            generatorInstance.Initialize(Playfield, this);
+            difficultyManager.generator = generatorInstance;
+
+            hitObjects = generatorInstance.GetHitObjects();
+            HitObjectEnumerator = hitObjects.GetEnumerator();
+            HitObjectEnumerator.MoveNext();
+            //hitObjects = landmarks.First().notes.Select(x => getSecondsForEvent(x.start)).Select(x => TimeSpan.FromSeconds(x)).Select(x => new Circle(this) { position = new Vector2((float) r.NextDouble(), (float) r.NextDouble()), start = x }).Select(x => x as HitObject).ToList();
+            _outputDevice = OutputDevice.GetByName("Microsoft GS Wavetable Synth");
+
+            _playback = midiFile.GetPlayback(_outputDevice);
+            PlaybackCurrentTimeWatcher.Instance.AddPlayback(_playback, TimeSpanType.Metric);
+            PlaybackCurrentTimeWatcher.Instance.CurrentTimeChanged += OnCurrentTimeChanged;
+
+            _playback.Speed = 1;
+            gameplayTimer = new Timer((t) =>
+            {
+                Application.Current.Dispatcher.Invoke(() =>
+                {
+                    PerformGameUpdate(GetTime());
+                });
+            }, null, timerTick, timerTick);
+
+            gameTimer.Restart();
+            _playback.Start();
+            PlaybackCurrentTimeWatcher.Instance.Start();
+
+            _playback.Finished += Finished;
+        }
+
+        List<IDifficultyManager> DifficultyManagers;
+
+        void BeginWithDifficulty(double difficulty)
+        {
+            if (Filepath is null or "") return;
+            DifficultyManagers = new List<IDifficultyManager>
+            {
+                new DefaultDifficultyManager(),
+                new SecondAlternateDifficultyManager(),
+                new PIDDifficultyManager(),
+                new ConstantDifficultyManager(),
+                new ConstantDifficultyManager(),
+                new ConstantDifficultyManager()
+            };
+
+            Random r = new Random();
+            int idx = r.Next(0, DifficultyManagers.Count);
+            difficultyManager = DifficultyManagers[idx];
+            DifficultySelectWindow.Visibility = Visibility.Collapsed;
+            StartGame();
+        }
+
+        private void StartEasy(object sender, RoutedEventArgs e)
+        {
+            OpenMidiFile();
+            BeginWithDifficulty(0);
+        }
+
+        private void StartNormal(object sender, RoutedEventArgs e)
+        {
+            OpenMidiFile();
+            BeginWithDifficulty(0.3);
+        }
+
+        private void StartHard(object sender, RoutedEventArgs e)
+        {
+            OpenMidiFile();
+            BeginWithDifficulty(0.7);
+        }
     }
 }
