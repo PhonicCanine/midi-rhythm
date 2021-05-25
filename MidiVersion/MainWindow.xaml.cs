@@ -249,7 +249,7 @@ namespace MidiVersion
                 else
                     scoring.combo++;
                 scoring.score += scoring.combo * (int)hr;
-                ScoreTextBlock.Text = $"Score: {scoring.score}, Combo: {scoring.combo - 1}, Difficulty: {difficultyManager.GetDifficulty()}";
+                ScoreTextBlock.Text = $"Score: {scoring.score}, Combo: {scoring.combo - 1}";
                 currentScoreIdx = order;
                 difficultyManager.AddHit(hr);
                 return true;
@@ -343,6 +343,7 @@ namespace MidiVersion
             Random r = new Random();
             int idx = r.Next(0, DifficultyManagers.Count);
             difficultyManager = DifficultyManagers[idx];
+            difficultyManager.SetInitialDifficulty(difficulty);
             DifficultySelectWindow.Visibility = Visibility.Collapsed;
             StartGame();
         }
