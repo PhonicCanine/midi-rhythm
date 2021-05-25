@@ -78,8 +78,6 @@ namespace MidiVersion
     {
         
         TimeSpan currentTime = TimeSpan.Zero;
-        TimeSpan gameplayTime = TimeSpan.Zero;
-        DateTime lastUpdate = DateTime.Now;
         public IGenerator generatorInstance;
         public IDifficultyManager difficultyManager;
         public MainWindow()
@@ -120,7 +118,6 @@ namespace MidiVersion
         IEnumerator<HitObject> HitObjectEnumerator;
         private void PerformGameUpdate(TimeSpan time)
         {
-            lastUpdate = DateTime.Now;
             int concurrent = 0;
             while (HitObjectEnumerator.Current.Render(Playfield,time) && _playback != null && ++concurrent < 5)
             {
@@ -142,9 +139,7 @@ namespace MidiVersion
         private List<Track> FindLandmarks(MidiFile file)
         {
             var chunks = from TrackChunk midichunk in file.Chunks
-                         from midiitem in midichunk.Events
-                         where midiitem.EventType == MidiEventType.SequenceTrackName
-                         select (midichunk, ((SequenceTrackNameEvent)midiitem).Text);
+                         select (midichunk, "Track");
             List<Track> tracks = new List<Track>();
             TempoMap tempoMap = file.GetTempoMap();
             lengthSeconds = (file
@@ -156,7 +151,9 @@ namespace MidiVersion
                 List<Note> notes = new List<Note>();
                 long currentTime = 0;
                 long first = -1;
-                Track track = new Track { name = chunk.Text };
+                Track track = new Track { name = chunk.Item2 };
+                if (chunk.midichunk.Events.Where(x => x.EventType == MidiEventType.SequenceTrackName).Any())
+                    track.name = (chunk.midichunk.Events.Where(x => x.EventType == MidiEventType.SequenceTrackName).First() as SequenceTrackNameEvent).Text;
                 foreach (MidiEvent a in chunk.midichunk.Events)
                 {
                     currentTime += a.DeltaTime;
@@ -219,10 +216,11 @@ namespace MidiVersion
             gameplayTimer.Dispose();
             _outputDevice = null;
             _playback = null;
+            PlaybackCurrentTimeWatcher.Instance.RemoveAllPlaybacks();
             Application.Current.Dispatcher.Invoke(() =>
             {
                 SurveyWindow.Visibility = Visibility.Visible;
-                string text = $"manager:{difficultyManager.GetName()},difficulty:{difficultyManager.GetDifficulty()},score:{scoring.score}";
+                string text = $"data-v2:manager:{difficultyManager.GetName()},difficulty:{difficultyManager.GetDifficulty()},score:{scoring.score},originallyselecteddifficulty:{selectedDifficulty}";
                 SurveyText.Text = BitConverter.ToString(Encoding.Default.GetBytes(text)).Replace("-", "");
                 Playfield.Children.Clear();
             });
@@ -279,7 +277,6 @@ namespace MidiVersion
         void StartGame()
         {
             currentTime = TimeSpan.Zero;
-            gameplayTime = TimeSpan.Zero;
             MidiFile midiFile;
             try
             {
@@ -288,6 +285,7 @@ namespace MidiVersion
             catch (Exception)
             {
                 ScoreTextBlock.Text = "Please open a midi file before starting.";
+                DifficultySelectWindow.Visibility = Visibility.Visible;
                 return;
             }
             this.ScoreTextBlock.Text = "";
@@ -304,10 +302,10 @@ namespace MidiVersion
             hitObjects = generatorInstance.GetHitObjects();
             HitObjectEnumerator = hitObjects.GetEnumerator();
             HitObjectEnumerator.MoveNext();
-            //hitObjects = landmarks.First().notes.Select(x => getSecondsForEvent(x.start)).Select(x => TimeSpan.FromSeconds(x)).Select(x => new Circle(this) { position = new Vector2((float) r.NextDouble(), (float) r.NextDouble()), start = x }).Select(x => x as HitObject).ToList();
             _outputDevice = OutputDevice.GetByName("Microsoft GS Wavetable Synth");
 
             _playback = midiFile.GetPlayback(_outputDevice);
+            
             PlaybackCurrentTimeWatcher.Instance.AddPlayback(_playback, TimeSpanType.Metric);
             PlaybackCurrentTimeWatcher.Instance.CurrentTimeChanged += OnCurrentTimeChanged;
 
@@ -349,21 +347,26 @@ namespace MidiVersion
             StartGame();
         }
 
+        int selectedDifficulty = 0;
+
         private void StartEasy(object sender, RoutedEventArgs e)
         {
             OpenMidiFile();
+            selectedDifficulty = 0;
             BeginWithDifficulty(0);
         }
 
         private void StartNormal(object sender, RoutedEventArgs e)
         {
             OpenMidiFile();
+            selectedDifficulty = 1;
             BeginWithDifficulty(0.3);
         }
 
         private void StartHard(object sender, RoutedEventArgs e)
         {
             OpenMidiFile();
+            selectedDifficulty = 2;
             BeginWithDifficulty(0.7);
         }
     }

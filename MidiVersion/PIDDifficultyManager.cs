@@ -32,7 +32,7 @@ namespace MidiVersion
             Delta = PlayerHealth - LastHealth;
             TotalDelta += Delta;
             DeltaRate = Delta - LastDelta;
-            Difficulty = Delta*0.001 + TotalDelta + DeltaRate*0.001;
+            Difficulty = Delta*0.00001 + TotalDelta + DeltaRate*0.001;
             TotalDelta = Math.Min(Math.Max(0, TotalDelta),1);
             generator.SetDifficulty(Difficulty);
         }
@@ -44,7 +44,7 @@ namespace MidiVersion
 
         public string GetName()
         {
-            return "PID";
+            return "PID-v2";
         }
 
         public void SetInitialDifficulty(double difficulty)
